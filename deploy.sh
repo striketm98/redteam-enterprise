@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Red Team Enterprise Framework - Deployment Script
+# Red Team Enterprise Framework - Fixed Deployment Script
 # Compatible with Kali Linux and WSL
 
 set -e
@@ -18,66 +18,48 @@ cat << "EOF"
 ╔═══════════════════════════════════════════════════════════════════╗
 ║                                                                   ║
 ║     RED TEAM ENTERPRISE FRAMEWORK - PROFESSIONAL EDITION          ║
-║                      Deployment Script v2.0                       ║
-║                                                                   ║
-║  Author: Security Research Team                                  ║
-║  License: Educational Purpose Only                               ║
+║                      Deployment Script v2.1                       ║
 ║                                                                   ║
 ╚═══════════════════════════════════════════════════════════════════╝
 EOF
 echo -e "${NC}"
 
-# Check if running as root
-if [[ $EUID -eq 0 ]]; then
-   echo -e "${RED}[!] Do not run as root! Use a regular user with docker privileges.${NC}"
-   exit 1
-fi
-
-# Check Docker installation
-echo -e "${YELLOW}[*] Checking Docker installation...${NC}"
-if ! command -v docker &> /dev/null; then
-    echo -e "${RED}[!] Docker not found. Installing Docker...${NC}"
-    
-    # Detect OS
-    if grep -q Microsoft /proc/version; then
-        echo -e "${YELLOW}[*] WSL detected. Installing Docker Desktop for Windows is recommended.${NC}"
-        echo -e "${YELLOW}[*] Alternatively, install Docker Engine:${NC}"
-        echo "  curl -fsSL https://get.docker.com -o get-docker.sh"
-        echo "  sudo sh get-docker.sh"
-        exit 1
-    elif [[ "$(uname)" == "Linux" ]]; then
-        # Install Docker on Kali Linux
-        sudo apt-get update
-        sudo apt-get install -y docker.io docker-compose
-        sudo systemctl start docker
-        sudo systemctl enable docker
-        sudo usermod -aG docker $USER
-        echo -e "${GREEN}[✓] Docker installed successfully${NC}"
-    fi
-fi
-
-# Check Docker Compose
-echo -e "${YELLOW}[*] Checking Docker Compose...${NC}"
-if ! command -v docker-compose &> /dev/null; then
-    echo -e "${YELLOW}[*] Installing Docker Compose...${NC}"
-    sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-    sudo chmod +x /usr/local/bin/docker-compose
-    echo -e "${GREEN}[✓] Docker Compose installed${NC}"
-fi
-
 # Create project structure
 echo -e "${YELLOW}[*] Creating project structure...${NC}"
-mkdir -p redteam-enterprise/{backend,frontend,sessions,generated_reports}
+
+# Create main directories
+mkdir -p redteam-enterprise
 cd redteam-enterprise
 
-# Create necessary files (content from above)
-echo -e "${YELLOW}[*] Creating backend files...${NC}"
+# Create backend directory structure properly
+echo -e "${YELLOW}[*] Creating backend directory structure...${NC}"
+mkdir -p backend/core
+mkdir -p backend/graph
+mkdir -p backend/lab
+mkdir -p backend/report
+mkdir -p backend/api
+mkdir -p backend/sessions
 
-# Backend directories
-mkdir -p backend/{core,graph,lab,report,api,sessions}
-touch backend/{core,graph,lab,report,api}/__init__.py
+# Create __init__.py files in each directory
+touch backend/core/__init__.py
+touch backend/graph/__init__.py
+touch backend/lab/__init__.py
+touch backend/report/__init__.py
+touch backend/api/__init__.py
 
-# Copy all the Python files
+# Create frontend directories
+echo -e "${YELLOW}[*] Creating frontend directory structure...${NC}"
+mkdir -p frontend/css
+mkdir -p frontend/js
+
+# Create other directories
+mkdir -p sessions
+mkdir -p generated_reports
+
+echo -e "${GREEN}[✓] Directory structure created${NC}"
+
+# Create requirements.txt
+echo -e "${YELLOW}[*] Creating requirements.txt...${NC}"
 cat > backend/requirements.txt << 'EOF'
 Flask==2.3.3
 Flask-CORS==4.0.0
@@ -102,7 +84,8 @@ NEO4J_PASS=SecurePass123!
 FLASK_ENV=production
 EOF
 
-# Create Docker Compose file
+# Create docker-compose.yml
+echo -e "${YELLOW}[*] Creating docker-compose.yml...${NC}"
 cat > docker-compose.yml << 'EOF'
 version: '3.8'
 
@@ -131,7 +114,6 @@ services:
     container_name: redteam-frontend
     ports:
       - "80:80"
-      - "443:443"
     depends_on:
       - backend
     networks:
@@ -164,6 +146,7 @@ volumes:
 EOF
 
 # Create backend Dockerfile
+echo -e "${YELLOW}[*] Creating backend Dockerfile...${NC}"
 cat > backend/Dockerfile << 'EOF'
 FROM python:3.11-slim
 
@@ -177,9 +160,7 @@ RUN apt-get update && apt-get install -y \
     whatweb \
     enum4linux \
     smbclient \
-    crackmapexec \
     sshpass \
-    docker.io \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -195,6 +176,7 @@ CMD ["python", "app.py"]
 EOF
 
 # Create frontend Dockerfile
+echo -e "${YELLOW}[*] Creating frontend Dockerfile...${NC}"
 cat > frontend/Dockerfile << 'EOF'
 FROM nginx:alpine
 
@@ -209,8 +191,7 @@ CMD ["nginx", "-g", "daemon off;"]
 EOF
 
 # Create nginx config
-mkdir -p frontend/css frontend/js
-
+echo -e "${YELLOW}[*] Creating nginx configuration...${NC}"
 cat > frontend/nginx.conf << 'EOF'
 events {
     worker_connections 1024;
@@ -250,7 +231,8 @@ http {
 }
 EOF
 
-# Create simple frontend files
+# Create a simple frontend index.html
+echo -e "${YELLOW}[*] Creating frontend HTML...${NC}"
 cat > frontend/index.html << 'EOF'
 <!DOCTYPE html>
 <html>
@@ -279,51 +261,192 @@ cat > frontend/index.html << 'EOF'
         .status {
             color: #00ff88;
         }
+        .loader {
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #00d4ff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🚀 Red Team Enterprise Framework</h1>
-        <p>Status: <span class="status">Deploying...</span></p>
-        <p>Please wait while services initialize...</p>
-        <p>Access the full dashboard at <a href="http://localhost:5000">http://localhost:5000</a></p>
+        <p>Status: <span class="status" id="status">Initializing...</span></p>
+        <div class="loader" id="loader"></div>
+        <p id="message">Setting up your environment...</p>
     </div>
     <script>
-        setTimeout(() => {
-            window.location.href = 'http://localhost:5000';
-        }, 5000);
+        let attempts = 0;
+        const maxAttempts = 30;
+        
+        function checkStatus() {
+            fetch('/api/health')
+                .then(response => {
+                    if (response.ok) {
+                        document.getElementById('status').textContent = 'Online';
+                        document.getElementById('status').style.color = '#00ff88';
+                        document.getElementById('loader').style.display = 'none';
+                        document.getElementById('message').innerHTML = '✅ Framework ready! Redirecting to dashboard...';
+                        setTimeout(() => {
+                            window.location.href = 'http://localhost:5000';
+                        }, 2000);
+                    } else {
+                        throw new Error('Not ready');
+                    }
+                })
+                .catch(error => {
+                    attempts++;
+                    if (attempts < maxAttempts) {
+                        document.getElementById('message').innerHTML = `Waiting for services... (${attempts}/${maxAttempts})`;
+                        setTimeout(checkStatus, 2000);
+                    } else {
+                        document.getElementById('status').textContent = 'Timeout';
+                        document.getElementById('status').style.color = '#ff3366';
+                        document.getElementById('message').innerHTML = '⚠️ Services taking longer than expected. Try accessing <a href="http://localhost:5000">http://localhost:5000</a> directly.';
+                        document.getElementById('loader').style.display = 'none';
+                    }
+                });
+        }
+        
+        setTimeout(checkStatus, 3000);
     </script>
 </body>
 </html>
 EOF
 
-# Create the main app.py file (simplified version for quick deployment)
+# Create basic CSS file
+echo -e "${YELLOW}[*] Creating CSS files...${NC}"
+cat > frontend/css/style.css << 'EOF'
+body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Courier New', monospace;
+    background: #0a0e27;
+    color: #00d4ff;
+}
+EOF
+
+# Create basic JS file
+echo -e "${YELLOW}[*] Creating JavaScript files...${NC}"
+cat > frontend/js/app.js << 'EOF'
+console.log('Red Team Enterprise Framework - Frontend Loaded');
+EOF
+
+cat > frontend/js/dashboard.js << 'EOF'
+console.log('Dashboard module loaded');
+EOF
+
+# Create the main app.py (simplified but functional)
+echo -e "${YELLOW}[*] Creating backend app.py...${NC}"
 cat > backend/app.py << 'EOF'
 from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO
 import os
+import platform
+import subprocess
 
 app = Flask(__name__, static_folder='../frontend', static_url_path='')
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'redteam-secret-key-2024')
 CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
+# Store targets in memory
+targets = []
+
 @app.route('/')
 def serve_frontend():
     return send_from_directory(app.static_folder, 'index.html')
+
+@app.route('/api/health')
+def health():
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': __import__('datetime').datetime.now().isoformat(),
+        'version': '2.0.0',
+        'system': platform.node()
+    })
 
 @app.route('/api/status')
 def status():
     return jsonify({
         'status': 'online',
-        'version': '2.0',
-        'message': 'Red Team Enterprise Framework is running'
+        'version': '2.0.0',
+        'message': 'Red Team Enterprise Framework is running',
+        'targets': len(targets),
+        'python_version': platform.python_version(),
+        'system': platform.system()
     })
 
-@app.route('/api/health')
-def health():
-    return jsonify({'healthy': True})
+@app.route('/api/targets', methods=['GET'])
+def get_targets():
+    return jsonify(targets)
+
+@app.route('/api/targets', methods=['POST'])
+def add_target():
+    import datetime
+    data = request.json
+    target = {
+        'id': len(targets) + 1,
+        'address': data.get('address'),
+        'status': 'pending',
+        'created': datetime.datetime.now().isoformat()
+    }
+    targets.append(target)
+    return jsonify(target), 201
+
+@app.route('/api/execute', methods=['POST'])
+def execute_command():
+    import subprocess
+    import shlex
+    data = request.json
+    command = data.get('command', '')
+    
+    # Basic command validation
+    dangerous = ['rm -rf', 'dd if=', 'mkfs', ':(){', 'fork bomb']
+    if any(danger in command.lower() for danger in dangerous):
+        return jsonify({'error': 'Command blocked for safety'}), 400
+    
+    try:
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+        return jsonify({
+            'output': result.stdout,
+            'error': result.stderr,
+            'returncode': result.returncode
+        })
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': 'Command timed out'}), 408
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+from flask import request
+
+@socketio.on('connect')
+def handle_connect():
+    print('Client connected')
+    socketio.emit('connected', {'status': 'Connected to Red Team Framework'})
+
+@socketio.on('execute_command')
+def handle_command(data):
+    import subprocess
+    command = data.get('command', '')
+    try:
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+        socketio.emit('command_result', {
+            'output': result.stdout,
+            'error': result.stderr,
+            'status': 'completed' if result.returncode == 0 else 'failed'
+        })
+    except Exception as e:
+        socketio.emit('command_result', {'error': str(e), 'status': 'error'})
 
 if __name__ == '__main__':
     print("""
@@ -337,10 +460,10 @@ if __name__ == '__main__':
     ║  ⚠️  Use only in authorized environments                 ║
     ╚═══════════════════════════════════════════════════════════╝
     """)
-    socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
 EOF
 
-# Make scripts executable
+# Make the script executable
 chmod +x deploy.sh
 
 # Build and start containers
@@ -350,15 +473,15 @@ docker-compose build --no-cache
 echo -e "${YELLOW}[*] Starting services...${NC}"
 docker-compose up -d
 
-# Wait for services to be ready
+# Wait for services
 echo -e "${YELLOW}[*] Waiting for services to be ready...${NC}"
-sleep 10
+sleep 15
 
 # Check service status
 echo -e "${YELLOW}[*] Checking service status...${NC}"
 docker-compose ps
 
-# Display access information
+# Display completion message
 echo -e "${GREEN}"
 echo "╔════════════════════════════════════════════════════════════╗"
 echo "║                    DEPLOYMENT COMPLETE!                    ║"
@@ -375,18 +498,17 @@ echo -e "${BLUE}Useful Commands:${NC}"
 echo "  • View logs: docker-compose logs -f"
 echo "  • Stop services: docker-compose down"
 echo "  • Restart services: docker-compose restart"
-echo "  • Rebuild: ./deploy.sh"
+echo "  • Check status: docker-compose ps"
 echo ""
 echo -e "${YELLOW}⚠️  IMPORTANT NOTES:${NC}"
 echo "  • This framework is for EDUCATIONAL purposes only"
 echo "  • Only use in authorized environments"
-echo "  • All actions are logged for accountability"
-echo "  • Default credentials: Change them immediately!"
+echo "  • Change default Neo4j password: neo4j/redteam"
 echo ""
-echo -e "${GREEN}Happy Red Teaming! 🚀${NC}"
 
-# Open browser (optional - works on some systems)
+# Try to open browser
 if command -v xdg-open &> /dev/null; then
+    echo -e "${BLUE}Opening browser...${NC}"
     xdg-open http://localhost:5000
 elif command -v open &> /dev/null; then
     open http://localhost:5000
