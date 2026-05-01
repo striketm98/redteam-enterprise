@@ -1,10 +1,9 @@
 #!/bin/bash
 
-# Red Team Enterprise Framework - Working Deployment Script
+# Red Team Enterprise Framework - Fully Working Deployment
 
 set -e
 
-RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
@@ -18,18 +17,23 @@ cat << "EOF"
 EOF
 echo -e "${NC}"
 
+# Clean up any existing directory
+cd ~
+rm -rf redteam-enterprise
+
 # Create directory structure
 echo -e "${YELLOW}[*] Creating directory structure...${NC}"
 mkdir -p redteam-enterprise/backend/{core,graph,lab,report,api,sessions}
 mkdir -p redteam-enterprise/frontend/{css,js}
-mkdir -p redteam-enterprise/{sessions,generated_reports}
+mkdir -p redteam-enterprise/sessions
+mkdir -p redteam-enterprise/generated_reports
 
 cd redteam-enterprise
 
 # Create __init__.py files
 touch backend/{core,graph,lab,report,api}/__init__.py
 
-# Create requirements.txt
+# Create requirements.txt (minimal for now)
 cat > backend/requirements.txt << 'EOF'
 Flask==2.3.3
 Flask-CORS==4.0.0
@@ -40,20 +44,19 @@ requests==2.31.0
 python-dotenv==1.0.0
 EOF
 
-# Create working Dockerfile
+# Create working Dockerfile (minimal version)
 cat > backend/Dockerfile << 'EOF'
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system tools (only those that exist)
+# Install minimal tools
 RUN apt-get update && apt-get install -y \
     nmap \
     curl \
     wget \
     openssh-client \
     procps \
-    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -153,7 +156,7 @@ http {
 }
 EOF
 
-# Create simple index.html
+# Create index.html
 cat > frontend/index.html << 'EOF'
 <!DOCTYPE html>
 <html>
@@ -181,27 +184,51 @@ cat > frontend/index.html << 'EOF'
         .status {
             color: #00ff88;
         }
+        .loader {
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #00d4ff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🚀 Red Team Enterprise Framework</h1>
-        <p>Status: <span class="status" id="status">Checking...</span></p>
-        <p id="message">Loading dashboard...</p>
+        <p>Status: <span class="status" id="status">Initializing...</span></p>
+        <div class="loader" id="loader"></div>
+        <p id="message">Starting services...</p>
     </div>
     <script>
-        fetch('/api/health')
-            .then(response => response.json())
-            .then(data => {
-                document.getElementById('status').textContent = 'Online';
-                document.getElementById('message').innerHTML = 'Redirecting to dashboard...';
-                setTimeout(() => {
-                    window.location.href = 'http://localhost:5000';
-                }, 2000);
-            })
-            .catch(() => {
-                document.getElementById('message').innerHTML = 'Access dashboard directly at <a href="http://localhost:5000">http://localhost:5000</a>';
-            });
+        let attempts = 0;
+        function checkBackend() {
+            fetch('http://localhost:5000/api/health')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('status').textContent = 'Online';
+                    document.getElementById('status').style.color = '#00ff88';
+                    document.getElementById('loader').style.display = 'none';
+                    document.getElementById('message').innerHTML = '✅ Framework ready! <a href="http://localhost:5000">Click here</a> to access dashboard';
+                })
+                .catch(() => {
+                    attempts++;
+                    if (attempts < 20) {
+                        document.getElementById('message').innerHTML = `Waiting for backend... (${attempts}/20)`;
+                        setTimeout(checkBackend, 2000);
+                    } else {
+                        document.getElementById('loader').style.display = 'none';
+                        document.getElementById('message').innerHTML = '⚠️ Access dashboard at <a href="http://localhost:5000">http://localhost:5000</a>';
+                    }
+                });
+        }
+        setTimeout(checkBackend, 3000);
     </script>
 </body>
 </html>
@@ -223,6 +250,7 @@ CORS(app)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 targets = []
+findings = []
 
 @app.route('/')
 def serve_frontend():
@@ -233,7 +261,8 @@ def health():
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
-        'version': '2.0.0'
+        'version': '2.0.0',
+        'container': 'running'
     })
 
 @app.route('/api/status')
@@ -242,7 +271,9 @@ def status():
         'status': 'online',
         'version': '2.0.0',
         'targets': len(targets),
-        'system': platform.system()
+        'findings': len(findings),
+        'system': platform.system(),
+        'python_version': platform.python_version()
     })
 
 @app.route('/api/targets', methods=['GET'])
@@ -268,6 +299,7 @@ def execute_command():
     data = request.json
     command = data.get('command', '')
     
+    # Command whitelist/blacklist
     dangerous = ['rm -rf', 'dd if=', 'mkfs', ':(){', 'fork bomb']
     if any(danger in command.lower() for danger in dangerous):
         return jsonify({'error': 'Command blocked for safety'}), 400
@@ -275,28 +307,42 @@ def execute_command():
     try:
         result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
         return jsonify({
-            'output': result.stdout,
-            'error': result.stderr,
-            'returncode': result.returncode
+            'output': result.stdout[:10000],  # Limit output
+            'error': result.stderr[:1000],
+            'returncode': result.returncode,
+            'command': command
         })
     except subprocess.TimeoutExpired:
-        return jsonify({'error': 'Command timed out'}), 408
+        return jsonify({'error': 'Command timed out after 30 seconds'}), 408
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 @socketio.on('connect')
 def handle_connect():
-    print('Client connected')
-    socketio.emit('connected', {'status': 'Connected'})
+    print(f'Client connected: {request.sid}')
+    socketio.emit('connected', {'status': 'Connected to Red Team Framework'})
+
+@socketio.on('execute_command')
+def handle_command(data):
+    command = data.get('command', '')
+    try:
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+        socketio.emit('command_result', {
+            'output': result.stdout,
+            'error': result.stderr,
+            'status': 'completed' if result.returncode == 0 else 'failed',
+            'command': command
+        })
+    except Exception as e:
+        socketio.emit('command_result', {'error': str(e), 'status': 'error'})
 
 if __name__ == '__main__':
-    print("""
-    ╔═══════════════════════════════════════════════════════════╗
-    ║     RED TEAM ENTERPRISE FRAMEWORK                         ║
-    ║     Access: http://localhost:5000                        ║
-    ║     API: http://localhost:5000/api                       ║
-    ╚═══════════════════════════════════════════════════════════╝
-    """)
+    print("\n" + "="*60)
+    print("RED TEAM ENTERPRISE FRAMEWORK")
+    print("="*60)
+    print(f"Dashboard: http://localhost:5000")
+    print(f"API: http://localhost:5000/api")
+    print("="*60 + "\n")
     socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
 EOF
 
@@ -307,8 +353,12 @@ docker-compose build --no-cache
 echo -e "${YELLOW}[*] Starting services...${NC}"
 docker-compose up -d
 
-echo -e "${YELLOW}[*] Waiting for services...${NC}"
-sleep 10
+echo -e "${YELLOW}[*] Waiting for services to be ready...${NC}"
+sleep 15
+
+# Check status
+echo -e "${YELLOW}[*] Checking service status...${NC}"
+docker-compose ps
 
 echo -e "${GREEN}"
 echo "╔════════════════════════════════════════════════════════════╗"
@@ -317,17 +367,22 @@ echo "╚═══════════════════════�
 echo -e "${NC}"
 echo -e "${GREEN}[✓] Framework is running${NC}"
 echo ""
-echo -e "${BLUE}Access URLs:${NC}"
-echo "  • Web Interface: http://localhost:5000"
+echo -e "Access URLs:"
+echo "  • Dashboard: http://localhost:5000"
 echo "  • API: http://localhost:5000/api"
 echo ""
-echo -e "${BLUE}Useful Commands:${NC}"
+echo -e "Useful Commands:"
 echo "  • View logs: docker-compose logs -f"
 echo "  • Stop: docker-compose down"
 echo "  • Restart: docker-compose restart"
 echo ""
 
-# Try to open browser
+# Test the API
+echo -e "${YELLOW}[*] Testing API...${NC}"
+sleep 5
+curl -s http://localhost:5000/api/health | head -1
+
+# Open browser
 if command -v xdg-open &> /dev/null; then
     xdg-open http://localhost:5000
 fi
