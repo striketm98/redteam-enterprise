@@ -25,7 +25,7 @@ login_manager.init_app(app)
 login_manager.login_view = 'login'
 
 # ============================================
-# CORE ENGINE CLASSES (Built-in to avoid imports)
+# CORE ENGINE CLASSES
 # ============================================
 
 class ScanEngine:
@@ -64,7 +64,6 @@ class ScanEngine:
             results['open_ports'] = self._parse_ports(output)
             results['findings'] = self._generate_findings_from_ports(results['open_ports'])
             
-            # Additional vulnerability checks
             vuln_cmd = f"nmap --script vuln {target} 2>/dev/null"
             vuln_output = self._run_command(vuln_cmd)
             if 'VULNERABLE' in vuln_output:
@@ -92,20 +91,18 @@ class ScanEngine:
         try:
             url = target if target.startswith(('http://', 'https://')) else f"http://{target}"
             
-            # Gobuster directory scan
             cmd = f"gobuster dir -u {url} -w /usr/share/wordlists/dirb/common.txt -t 30 -q 2>/dev/null"
             output = self._run_command(cmd)
             results['directories'] = self._parse_directories(output)
             
-            # Check for sensitive directories
             sensitive = ['admin', 'login', 'backup', 'config', '.git', 'wp-admin']
-            for dir in results['directories']:
+            for dir_entry in results['directories']:
                 for sens in sensitive:
-                    if sens in dir.lower():
+                    if sens in dir_entry.lower():
                         results['findings'].append({
                             'title': f'Sensitive Directory Found: {sens}',
                             'severity': 'Medium',
-                            'description': f'Found potentially sensitive directory: {dir}',
+                            'description': f'Found potentially sensitive directory: {dir_entry}',
                             'remediation': 'Restrict access to admin areas',
                             'cvss_score': 6.5
                         })
@@ -240,52 +237,83 @@ class ExploitEngine:
             {'name': 'eternalblue', 'description': 'MS17-010 - Windows SMB RCE', 'risk': 'Critical'},
             {'name': 'ms17_010', 'description': 'EternalBlue variant', 'risk': 'Critical'},
             {'name': 'shellshock', 'description': 'Bash RCE vulnerability', 'risk': 'High'},
-            {'name': 'heartbleed', 'description': 'OpenSSL info disclosure', 'risk': 'High'}
+            {'name': 'heartbleed', 'description': 'OpenSSL info disclosure', 'risk': 'High'},
+            {'name': 'dirtycow', 'description': 'Linux privilege escalation', 'risk': 'High'},
+            {'name': 'struts2', 'description': 'Apache Struts2 RCE', 'risk': 'Critical'}
         ]
 
 
 class ReportEngine:
     """Built-in Report Engine"""
     
-    def generate_report(self, scans, report_type, username):
+    def generate_report(self, scans_data, report_type, username):
         report = {
             'title': f'Security Assessment Report - {report_type.upper()}',
             'generated_by': username,
             'generated_at': datetime.now().isoformat(),
             'report_type': report_type,
-            'summary': self._generate_summary(scans),
-            'findings': self._aggregate_findings(scans),
-            'statistics': self._calculate_stats(scans)
+            'summary': self._generate_summary(scans_data),
+            'findings': self._aggregate_findings(scans_data),
+            'statistics': self._calculate_stats(scans_data)
         }
         return report
     
     def generate_pdf(self, report):
-        import os
         reports_dir = '/app/reports'
         os.makedirs(reports_dir, exist_ok=True)
-        pdf_path = os.path.join(reports_dir, f'report_{report["id"]}.html')
+        pdf_path = os.path.join(reports_dir, f'report_{report.get("id", "unknown")}.html')
         
         html_content = f"""
         <!DOCTYPE html>
         <html>
-        <head><title>{report.get('title', 'Security Report')}</title>
-        <style>
-            body {{ font-family: Arial; margin: 40px; background: #f5f5f5; }}
-            .container {{ max-width: 900px; margin: auto; background: white; padding: 30px; }}
-            h1 {{ color: #ff3366; }}
-            .finding {{ margin: 15px 0; padding: 15px; border-left: 4px solid; }}
-            .Critical {{ border-color: #ff3366; background: #ffe6e9; }}
-            .High {{ border-color: #ff6600; background: #fff0e6; }}
-        </style>
+        <head>
+            <title>{report.get('title', 'Security Report')}</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }}
+                .container {{ max-width: 900px; margin: auto; background: white; padding: 30px; border-radius: 10px; }}
+                h1 {{ color: #ff3366; border-bottom: 2px solid #ff3366; padding-bottom: 10px; }}
+                h2 {{ color: #333; margin-top: 30px; }}
+                .finding {{ margin: 15px 0; padding: 15px; border-left: 4px solid; border-radius: 4px; }}
+                .Critical {{ border-color: #ff3366; background: #ffe6e9; }}
+                .High {{ border-color: #ff6600; background: #fff0e6; }}
+                .Medium {{ border-color: #ffaa00; background: #fff8e6; }}
+                .Low {{ border-color: #00ff88; background: #e6fff0; }}
+                .severity-badge {{ display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; }}
+                .severity-Critical {{ background: #ff3366; color: white; }}
+                .severity-High {{ background: #ff6600; color: white; }}
+                .footer {{ margin-top: 40px; text-align: center; color: #999; font-size: 12px; border-top: 1px solid #ddd; padding-top: 20px; }}
+                table {{ width: 100%; border-collapse: collapse; margin: 20px 0; }}
+                th, td {{ padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }}
+                th {{ background: #f0f0f0; }}
+            </style>
         </head>
         <body>
-        <div class="container">
-            <h1>🔒 RedTeamKa Security Report</h1>
-            <p>Generated: {datetime.now().isoformat()}</p>
-            <hr>
-            <h2>Findings Summary</h2>
-            {self._findings_to_html(report.get('data', {}).get('findings', []))}
-        </div>
+            <div class="container">
+                <h1>🔒 RedTeamKa Security Assessment Report</h1>
+                <p><strong>Generated:</strong> {datetime.now().isoformat()}</p>
+                <p><strong>Generated By:</strong> {report.get('generated_by', 'Unknown')}</p>
+                <hr>
+                
+                <h2>📊 Executive Summary</h2>
+                <p>{report.get('data', {}).get('summary', 'No summary available')}</p>
+                
+                <h2>📈 Statistics</h2>
+                <table>
+                    <tr><th>Metric</th><th>Value</th></tr>
+                    <tr><td>Total Scans</td><td>{report.get('data', {}).get('statistics', {}).get('total_scans', 0)}</td></tr>
+                    <tr><td>Total Findings</td><td>{report.get('data', {}).get('statistics', {}).get('total_findings', 0)}</td></tr>
+                    <tr><td>Critical Findings</td><td>{report.get('data', {}).get('statistics', {}).get('critical', 0)}</td></tr>
+                    <tr><td>High Findings</td><td>{report.get('data', {}).get('statistics', {}).get('high', 0)}</td></tr>
+                </table>
+                
+                <h2>🔍 Detailed Findings</h2>
+                {self._findings_to_html(report.get('data', {}).get('findings', []))}
+                
+                <div class="footer">
+                    <p>This report was automatically generated by RedTeamKa Enterprise Platform</p>
+                    <p>Confidential - For authorized use only</p>
+                </div>
+            </div>
         </body>
         </html>
         """
@@ -293,31 +321,46 @@ class ReportEngine:
             f.write(html_content)
         return pdf_path
     
-    def _generate_summary(self, scans):
-        total_findings = sum(len(s.get('findings', [])) for s in scans)
-        return f"Assessment completed on {len(scans)} targets with {total_findings} findings."
+    def _generate_summary(self, scans_data):
+        total_findings = sum(len(s.get('findings', [])) for s in scans_data)
+        critical = sum(1 for s in scans_data for f in s.get('findings', []) if f.get('severity') == 'Critical')
+        
+        if critical > 0:
+            return f"CRITICAL: Assessment completed on {len(scans_data)} targets with {total_findings} findings, including {critical} critical vulnerabilities that require immediate attention."
+        return f"Assessment completed on {len(scans_data)} targets with {total_findings} findings."
     
-    def _aggregate_findings(self, scans):
+    def _aggregate_findings(self, scans_data):
         all_findings = []
-        for scan in scans:
+        for scan in scans_data:
             all_findings.extend(scan.get('findings', []))
         return all_findings
     
-    def _calculate_stats(self, scans):
-        findings = self._aggregate_findings(scans)
+    def _calculate_stats(self, scans_data):
+        findings = self._aggregate_findings(scans_data)
         return {
-            'total_scans': len(scans),
+            'total_scans': len(scans_data),
             'total_findings': len(findings),
             'critical': len([f for f in findings if f.get('severity') == 'Critical']),
-            'high': len([f for f in findings if f.get('severity') == 'High'])
+            'high': len([f for f in findings if f.get('severity') == 'High']),
+            'medium': len([f for f in findings if f.get('severity') == 'Medium']),
+            'low': len([f for f in findings if f.get('severity') == 'Low'])
         }
     
     def _findings_to_html(self, findings):
         if not findings:
-            return '<p>No findings discovered.</p>'
-        html = '<ul>'
+            return '<p>✅ No findings discovered during this assessment.</p>'
+        
+        html = '<ul style="list-style: none; padding: 0;">'
         for f in findings:
-            html += f'<li><strong>{f.get("title")}</strong> - {f.get("severity")}</li>'
+            severity = f.get('severity', 'Low')
+            html += f'''
+            <li class="finding {severity}" style="margin-bottom: 15px; padding: 15px; border-left: 4px solid; border-radius: 4px;">
+                <strong>{f.get('title', 'Untitled Finding')}</strong><br>
+                <span class="severity-badge severity-{severity}">{severity}</span>
+                <p style="margin-top: 10px;"><strong>Description:</strong> {f.get('description', 'N/A')}</p>
+                <p><strong>Remediation:</strong> {f.get('remediation', 'Apply security best practices')}</p>
+            </li>
+            '''
         html += '</ul>'
         return html
 
@@ -347,23 +390,40 @@ class AIAnalyzer:
     def _generate_summary(self, findings, risk_score):
         if not findings:
             return 'No vulnerabilities detected. System appears secure.'
+        
         critical = len([f for f in findings if f.get('severity') == 'Critical'])
-        if risk_score > 70:
-            return f'CRITICAL RISK: {critical} critical vulnerabilities require immediate attention.'
-        elif risk_score > 40:
-            return f'HIGH RISK: Multiple vulnerabilities detected that need remediation.'
-        return f'MEDIUM RISK: {len(findings)} vulnerabilities found requiring review.'
+        high = len([f for f in findings if f.get('severity') == 'High'])
+        
+        if risk_score >= 80:
+            return f'🚨 CRITICAL RISK: {critical} critical vulnerabilities require immediate attention. System at high risk of compromise.'
+        elif risk_score >= 60:
+            return f'⚠️ HIGH RISK: {critical} critical and {high} high severity vulnerabilities detected.'
+        elif risk_score >= 40:
+            return f'📊 MEDIUM RISK: Multiple vulnerabilities detected that need remediation.'
+        else:
+            return f'✅ LOW RISK: {len(findings)} minor vulnerabilities found for review.'
     
     def _generate_recommendations(self, findings, risk_score):
         recs = []
-        if risk_score > 70:
-            recs.append('Immediately patch all critical vulnerabilities')
-            recs.append('Consider temporary isolation of affected systems')
-        if risk_score > 40:
-            recs.append('Prioritize remediation of high-severity findings')
-            recs.append('Review and update firewall rules')
-        recs.append('Conduct regular security assessments')
-        recs.append('Implement security monitoring and logging')
+        
+        if risk_score >= 80:
+            recs.append('🔴 IMMEDIATE: Patch all critical vulnerabilities within 24 hours')
+            recs.append('🔴 IMMEDIATE: Consider temporary isolation of affected systems')
+            recs.append('📋 Conduct emergency incident response review')
+        elif risk_score >= 60:
+            recs.append('🟠 HIGH PRIORITY: Remediate critical and high findings within 7 days')
+            recs.append('🟠 Review and update firewall rules')
+            recs.append('📋 Implement additional monitoring for affected services')
+        elif risk_score >= 40:
+            recs.append('🟡 MEDIUM PRIORITY: Address findings in next sprint')
+            recs.append('🟡 Review security configurations')
+        else:
+            recs.append('🟢 LOW PRIORITY: Follow standard patch management cycles')
+        
+        recs.append('📊 Schedule follow-up assessment after remediation')
+        recs.append('🔒 Implement principle of least privilege')
+        recs.append('📝 Document all findings and remediation actions')
+        
         return recs
     
     def _get_priority_findings(self, findings):
@@ -419,7 +479,7 @@ report_engine = ReportEngine()
 ai_analyzer = AIAnalyzer()
 
 # ============================================
-# AUTHENTICATION ROUTES
+# API ROUTES - AUTHENTICATION
 # ============================================
 
 @app.route('/api/auth/login', methods=['POST'])
@@ -464,8 +524,19 @@ def get_current_user():
         'email': current_user.email
     })
 
+@app.route('/api/auth/verify', methods=['GET'])
+@login_required
+def verify_token():
+    return jsonify({
+        'valid': True,
+        'user': {
+            'username': current_user.username,
+            'role': current_user.role
+        }
+    })
+
 # ============================================
-# SCANNING ROUTES
+# API ROUTES - SCANNING
 # ============================================
 
 @app.route('/api/scan/start', methods=['POST'])
@@ -478,6 +549,9 @@ def start_scan():
     target = data.get('target')
     scan_type = data.get('scan_type', 'quick')
     options = data.get('options', {})
+    
+    if not target:
+        return jsonify({'error': 'Target is required'}), 400
     
     scan_id = str(uuid.uuid4())
     
@@ -578,8 +652,20 @@ def get_all_scans():
         'completed_at': s.get('completed_at')
     } for s in user_scans])
 
+@app.route('/api/scan/delete/<scan_id>', methods=['DELETE'])
+@login_required
+def delete_scan(scan_id):
+    if current_user.role != 'pentest':
+        return jsonify({'error': 'Permission denied'}), 403
+    
+    if scan_id in scans:
+        del scans[scan_id]
+        return jsonify({'success': True, 'message': 'Scan deleted'})
+    
+    return jsonify({'error': 'Scan not found'}), 404
+
 # ============================================
-# EXPLOIT ROUTES
+# API ROUTES - EXPLOITS
 # ============================================
 
 @app.route('/api/exploit/run', methods=['POST'])
@@ -589,7 +675,14 @@ def run_exploit():
         return jsonify({'error': 'Only pentesters can run exploits'}), 403
     
     data = request.json
-    result = exploit_engine.run_exploit(data.get('exploit'), data.get('target'), data.get('options', {}))
+    exploit_name = data.get('exploit')
+    target = data.get('target')
+    options = data.get('options', {})
+    
+    if not exploit_name or not target:
+        return jsonify({'error': 'Exploit name and target required'}), 400
+    
+    result = exploit_engine.run_exploit(exploit_name, target, options)
     return jsonify({'success': True, 'result': result})
 
 @app.route('/api/exploits/list', methods=['GET'])
@@ -597,8 +690,19 @@ def run_exploit():
 def list_exploits():
     return jsonify(exploit_engine.list_available_exploits())
 
+@app.route('/api/exploit/info/<exploit_name>', methods=['GET'])
+@login_required
+def get_exploit_info(exploit_name):
+    exploits = exploit_engine.list_available_exploits()
+    exploit = next((e for e in exploits if e['name'] == exploit_name), None)
+    
+    if not exploit:
+        return jsonify({'error': 'Exploit not found'}), 404
+    
+    return jsonify(exploit)
+
 # ============================================
-# REPORT ROUTES
+# API ROUTES - REPORTS
 # ============================================
 
 @app.route('/api/report/generate', methods=['POST'])
@@ -607,6 +711,9 @@ def generate_report():
     data = request.json
     scan_ids = data.get('scan_ids', [])
     report_type = data.get('type', 'executive')
+    
+    if not scan_ids:
+        return jsonify({'error': 'No scan IDs provided'}), 400
     
     report_scans = []
     for scan_id in scan_ids:
@@ -630,7 +737,11 @@ def generate_report():
     }
     reports.append(report)
     
-    return jsonify({'success': True, 'report_id': report_id, 'report': report_data})
+    return jsonify({
+        'success': True,
+        'report_id': report_id,
+        'report': report_data
+    })
 
 @app.route('/api/report/download/<report_id>', methods=['GET'])
 @login_required
@@ -649,8 +760,18 @@ def get_reports():
         return jsonify(reports)
     return jsonify([r for r in reports if r['generated_by'] == current_user.username])
 
+@app.route('/api/report/delete/<report_id>', methods=['DELETE'])
+@login_required
+def delete_report(report_id):
+    if current_user.role != 'pentest':
+        return jsonify({'error': 'Permission denied'}), 403
+    
+    global reports
+    reports = [r for r in reports if r['id'] != report_id]
+    return jsonify({'success': True, 'message': 'Report deleted'})
+
 # ============================================
-# FINDINGS ROUTES
+# API ROUTES - FINDINGS
 # ============================================
 
 @app.route('/api/findings', methods=['GET'])
@@ -663,8 +784,57 @@ def get_findings():
     user_scan_ids = [s['id'] for s in user_scans]
     return jsonify([f for f in findings if f['scan_id'] in user_scan_ids])
 
+@app.route('/api/findings/by-severity', methods=['GET'])
+@login_required
+def get_findings_by_severity():
+    severity = request.args.get('severity', 'all')
+    
+    if current_user.role == 'pentest':
+        user_findings = findings
+    else:
+        user_scans = [s for s in scans.values() if s['created_by'] == current_user.username]
+        user_scan_ids = [s['id'] for s in user_scans]
+        user_findings = [f for f in findings if f['scan_id'] in user_scan_ids]
+    
+    if severity != 'all':
+        user_findings = [f for f in user_findings if f.get('severity', '').lower() == severity.lower()]
+    
+    return jsonify(user_findings)
+
+@app.route('/api/findings/export', methods=['GET'])
+@login_required
+def export_findings():
+    import csv
+    import io
+    
+    if current_user.role == 'pentest':
+        user_findings = findings
+    else:
+        user_scans = [s for s in scans.values() if s['created_by'] == current_user.username]
+        user_scan_ids = [s['id'] for s in user_scans]
+        user_findings = [f for f in findings if f['scan_id'] in user_scan_ids]
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Title', 'Severity', 'Description', 'Remediation', 'Scan Target', 'Date'])
+    
+    for f in user_findings:
+        writer.writerow([
+            f.get('title', ''),
+            f.get('severity', ''),
+            f.get('description', ''),
+            f.get('remediation', ''),
+            f.get('scan_target', ''),
+            f.get('created_at', '')[:10]
+        ])
+    
+    return output.getvalue(), 200, {
+        'Content-Type': 'text/csv',
+        'Content-Disposition': 'attachment; filename=findings_export.csv'
+    }
+
 # ============================================
-# DASHBOARD STATS
+# API ROUTES - DASHBOARD
 # ============================================
 
 @app.route('/api/dashboard/stats', methods=['GET'])
@@ -672,129 +842,16 @@ def get_findings():
 def get_dashboard_stats():
     if current_user.role == 'pentest':
         total_scans = len(scans)
+        completed_scans = len([s for s in scans.values() if s.get('status') == 'completed'])
         critical = len([f for f in findings if f.get('severity') == 'Critical'])
         high = len([f for f in findings if f.get('severity') == 'High'])
+        medium = len([f for f in findings if f.get('severity') == 'Medium'])
+        low = len([f for f in findings if f.get('severity') == 'Low'])
+        total_findings = len(findings)
         unique_targets = len(set([s['target'] for s in scans.values()]))
     else:
         user_scans = [s for s in scans.values() if s['created_by'] == current_user.username]
         user_scan_ids = [s['id'] for s in user_scans]
         user_findings = [f for f in findings if f['scan_id'] in user_scan_ids]
         total_scans = len(user_scans)
-        critical = len([f for f in user_findings if f.get('severity') == 'Critical'])
-        high = len([f for f in user_findings if f.get('severity') == 'High'])
-        unique_targets = len(set([s['target'] for s in user_scans]))
-    
-    return jsonify({
-        'total_scans': total_scans,
-        'critical_findings': critical,
-        'high_findings': high,
-        'total_findings': len(findings) if current_user.role == 'pentest' else critical + high,
-        'unique_targets': unique_targets,
-        'user_role': current_user.role,
-        'user_name': current_user.username
-    })
-
-@app.route('/api/dashboard/recent', methods=['GET'])
-@login_required
-def get_recent_activity():
-    if current_user.role == 'pentest':
-        recent_scans = sorted(scans.values(), key=lambda x: x.get('created_at', ''), reverse=True)[:10]
-    else:
-        user_scans = [s for s in scans.values() if s['created_by'] == current_user.username]
-        recent_scans = sorted(user_scans, key=lambda x: x.get('created_at', ''), reverse=True)[:10]
-    
-    return jsonify([{
-        'id': s['id'],
-        'target': s['target'],
-        'scan_type': s['scan_type'],
-        'status': s['status'],
-        'created_at': s['created_at'],
-        'findings_count': len(s.get('findings', []))
-    } for s in recent_scans])
-
-# ============================================
-# TOOLS & HEALTH
-# ============================================
-
-@app.route('/api/tools', methods=['GET'])
-@login_required
-def get_available_tools():
-    tools = [
-        {'name': 'Nmap', 'description': 'Network discovery and scanning', 'category': 'network'},
-        {'name': 'Metasploit', 'description': 'Exploitation framework', 'category': 'exploit'},
-        {'name': 'Hydra', 'description': 'Password brute-forcing', 'category': 'auth'},
-        {'name': 'SQLmap', 'description': 'SQL injection detection', 'category': 'web'},
-        {'name': 'Gobuster', 'description': 'Directory brute-forcing', 'category': 'web'},
-        {'name': 'Nikto', 'description': 'Web vulnerability scanner', 'category': 'web'}
-    ]
-    return jsonify(tools)
-
-@app.route('/api/health', methods=['GET'])
-def health_check():
-    return jsonify({
-        'status': 'healthy',
-        'name': 'RedTeamKa',
-        'version': '1.0.0',
-        'timestamp': datetime.now().isoformat(),
-        'users': len(users),
-        'scans': len(scans),
-        'findings': len(findings)
-    })
-
-# ============================================
-# FRONTEND ROUTES
-# ============================================
-
-@app.route('/')
-def serve_frontend():
-    return send_from_directory(app.static_folder, 'index.html')
-
-@app.route('/<path:path>')
-def serve_static(path):
-    return send_from_directory(app.static_folder, path)
-
-# ============================================
-# WEB SOCKET EVENTS
-# ============================================
-
-@socketio.on('connect')
-def handle_connect():
-    print(f'Client connected: {request.sid}')
-    emit('connected', {'message': 'Connected to RedTeamKa'})
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    print(f'Client disconnected: {request.sid}')
-
-# ============================================
-# MAIN
-# ============================================
-
-if __name__ == '__main__':
-    init_users()
-    
-    print("""
-    ╔═══════════════════════════════════════════════════════════════════╗
-    ║                                                                   ║
-    ║                    🔴 REDTEAMKA - Complete Platform 🔴            ║
-    ║                                                                   ║
-    ║              Enterprise Red Team Automation Framework             ║
-    ║                                                                   ║
-    ╠═══════════════════════════════════════════════════════════════════╣
-    ║                                                                   ║
-    ║  🌐 Web Interface: http://localhost:8888                         ║
-    ║  📡 API Endpoint: http://localhost:8888/api                      ║
-    ║                                                                   ║
-    ║  🔐 Default Credentials:                                         ║
-    ║     🔴 Pentester:  pentest / RedTeamKa@2024                      ║
-    ║     🔵 Client:     client / Client@2024                          ║
-    ║                                                                   ║
-    ║  🛠️  Integrated Tools: Nmap, Metasploit, Hydra, SQLmap, Gobuster ║
-    ║  🤖 AI Features: Risk scoring, Smart recommendations             ║
-    ║                                                                   ║
-    ╠═══════════════════════════════════════════════════════════════════╣
-    ║  ⚠️  EDUCATIONAL PURPOSE ONLY - Use responsibly                 ║
-    ╚═══════════════════════════════════════════════════════════════════╝
-    """)
-    
-    socketio.run(app, host='0.0.0.0', port=8888, debug=False, allow_unsafe_werkzeug=True)
+        completed_scans = len([s for s in user_scans if s.get('status') == 'completed'])
