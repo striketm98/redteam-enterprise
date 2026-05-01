@@ -570,3 +570,193 @@ style.textContent = `
     }
 `;
 document.head.appendChild(style);
+// Role-based UI management
+class RedTeamApp {
+    constructor() {
+        this.currentUser = null;
+        this.init();
+    }
+    
+    async init() {
+        await this.checkAuth();
+        this.setupEventListeners();
+        this.loadDashboard();
+    }
+    
+    async checkAuth() {
+        try {
+            const response = await fetch('/api/current-user');
+            if (response.ok) {
+                this.currentUser = await response.json();
+                this.updateUIForRole();
+            } else {
+                this.showLogin();
+            }
+        } catch (error) {
+            this.showLogin();
+        }
+    }
+    
+    updateUIForRole() {
+        const isPentest = this.currentUser.role === 'pentest';
+        
+        // Show/hide pentest-only elements
+        const pentestElements = document.querySelectorAll('.pentest-only');
+        pentestElements.forEach(el => {
+            el.style.display = isPentest ? 'block' : 'none';
+        });
+        
+        // Update role badge
+        const roleBadge = document.getElementById('role-badge');
+        if (roleBadge) {
+            roleBadge.textContent = this.currentUser.role.toUpperCase();
+            roleBadge.className = `role-badge role-${this.currentUser.role}`;
+        }
+        
+        // Update navigation
+        const nav = document.getElementById('main-nav');
+        if (nav) {
+            let navHtml = `
+                <a href="#dashboard" class="nav-item">Dashboard</a>
+                <a href="#reports" class="nav-item">Reports</a>
+            `;
+            
+            if (isPentest) {
+                navHtml += `
+                    <a href="#scan" class="nav-item">New Scan</a>
+                    <a href="#findings" class="nav-item">Findings</a>
+                    <a href="#admin" class="nav-item">Admin</a>
+                `;
+            }
+            
+            nav.innerHTML = navHtml;
+        }
+    }
+    
+    async login(username, password) {
+        try {
+            const response = await fetch('/api/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username, password})
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                this.currentUser = data.user;
+                this.updateUIForRole();
+                this.loadDashboard();
+                this.showNotification(`Welcome ${data.user.username}!`, 'success');
+            } else {
+                this.showNotification('Login failed', 'error');
+            }
+        } catch (error) {
+            this.showNotification('Login error', 'error');
+        }
+    }
+    
+    async startScan(target, scanType) {
+        if (this.currentUser.role !== 'pentest') {
+            this.showNotification('Only pentesters can start scans', 'error');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/scan', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({target, scan_type: scanType})
+            });
+            
+            if (response.ok) {
+                this.showNotification(`Scan started for ${target}`, 'success');
+                this.loadDashboard();
+            } else {
+                this.showNotification('Scan failed to start', 'error');
+            }
+        } catch (error) {
+            this.showNotification('Error starting scan', 'error');
+        }
+    }
+    
+    async loadDashboard() {
+        const stats = await fetch('/api/stats').then(r => r.json());
+        const scans = await fetch('/api/scans').then(r => r.json());
+        
+        // Update dashboard with stats and scans
+        this.renderDashboard(stats, scans);
+    }
+    
+    renderDashboard(stats, scans) {
+        const container = document.getElementById('dashboard-content');
+        if (!container) return;
+        
+        container.innerHTML = `
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <h3>Total Scans</h3>
+                    <div class="value">${stats.total_scans}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Critical Findings</h3>
+                    <div class="value critical">${stats.critical_findings}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>High Findings</h3>
+                    <div class="value high">${stats.high_findings}</div>
+                </div>
+            </div>
+            
+            <div class="scans-list">
+                <h2>Recent Scans</h2>
+                ${scans.map(scan => `
+                    <div class="scan-item">
+                        <span>${scan.target}</span>
+                        <span class="status-${scan.status}">${scan.status}</span>
+                        <span>${scan.findings_count} findings</span>
+                        <button onclick="app.viewScan('${scan.id}')">View</button>
+                        ${this.currentUser.role === 'pentest' ? 
+                            `<button onclick="app.generateReport('${scan.id}')">Generate Report</button>` : 
+                            `<button onclick="app.downloadReport('${scan.id}')">Download Report</button>`
+                        }
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+    
+    async generateReport(scanId) {
+        window.open(`/api/reports/${scanId}`, '_blank');
+    }
+    
+    showLogin() {
+        // Show login modal
+        const loginHtml = `
+            <div class="login-modal">
+                <div class="login-container">
+                    <h2>Red Team Platform</h2>
+                    <input type="text" id="login-username" placeholder="Username">
+                    <input type="password" id="login-password" placeholder="Password">
+                    <button onclick="app.login(document.getElementById('login-username').value, document.getElementById('login-password').value)">
+                        Login
+                    </button>
+                    <div class="demo-creds">
+                        <small>Pentest: pentest / Pentest@123</small>
+                        <small>Client: client / Client@123</small>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.innerHTML = loginHtml;
+    }
+    
+    showNotification(message, type) {
+        // Implement notification system
+        console.log(`${type}: ${message}`);
+    }
+}
+
+// Initialize app
+const app = new RedTeamApp();
