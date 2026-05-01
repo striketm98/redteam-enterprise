@@ -1,271 +1,508 @@
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, session
 from flask_cors import CORS
-from flask_socketio import SocketIO
-from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from flask_socketio import SocketIO, emit
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+from datetime import datetime, timedelta
 import os
 import json
-from datetime import datetime
-from core.auth import db, User, Scan, Finding, init_db
+import uuid
+import subprocess
+import threading
+from functools import wraps
+
+# Import custom modules
 from core.scan_engine import ScanEngine
-from core.report_generator import ReportGenerator
+from core.exploit_engine import ExploitEngine
+from core.report_engine import ReportEngine
+from core.ai_analyzer import AIAnalyzer
 
 # Initialize Flask app
 app = Flask(__name__, static_folder='../frontend', static_url_path='')
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'redteam-secret-key-2024')
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///redteam.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-# Initialize extensions
-CORS(app)
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'redteamka-secret-key-2024')
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
+CORS(app, supports_credentials=True)
 socketio = SocketIO(app, cors_allowed_origins="*")
-db.init_app(app)
 
-# Initialize Flask-Login
+# Initialize Login Manager
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
+# Initialize engines
+scan_engine = ScanEngine()
+exploit_engine = ExploitEngine()
+report_engine = ReportEngine()
+ai_analyzer = AIAnalyzer()
+
+# ============================================
+# USER DATABASE (In-memory with persistence)
+# ============================================
+
+class User(UserMixin):
+    def __init__(self, id, username, password_hash, role, email):
+        self.id = id
+        self.username = username
+        self.password_hash = password_hash
+        self.role = role  # 'pentest' or 'client'
+        self.email = email
+
+users = {}
+scans = {}
+findings = []
+reports = []
+sessions_data = {}
+
+# Default users
+default_users = {
+    'pentest': {
+        'password': 'RedTeamKa@2024',
+        'role': 'pentest',
+        'email': 'pentest@redteamka.local'
+    },
+    'client': {
+        'password': 'Client@2024',
+        'role': 'client',
+        'email': 'client@redteamka.local'
+    }
+}
+
+def init_users():
+    for username, data in default_users.items():
+        if username not in users:
+            user_id = str(uuid.uuid4())
+            users[username] = User(
+                id=user_id,
+                username=username,
+                password_hash=generate_password_hash(data['password']),
+                role=data['role'],
+                email=data['email']
+            )
+            print(f"✅ Created user: {username} ({data['role']})")
+
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(user_id)
-
-# Initialize components
-scan_engine = ScanEngine()
-report_generator = ReportGenerator()
+    for user in users.values():
+        if user.id == user_id:
+            return user
+    return None
 
 # ============================================
 # AUTHENTICATION ROUTES
 # ============================================
 
-@app.route('/api/login', methods=['POST'])
+@app.route('/api/auth/login', methods=['POST'])
 def login():
     data = request.json
     username = data.get('username')
     password = data.get('password')
     
-    user = User.query.filter_by(username=username).first()
+    user = users.get(username)
     
-    if user and user.check_password(password):
-        login_user(user)
-        user.last_login = datetime.utcnow()
-        db.session.commit()
+    if user and check_password_hash(user.password_hash, password):
+        login_user(user, remember=True)
+        session.permanent = True
         
         return jsonify({
             'success': True,
-            'user': user.to_dict(),
-            'message': f'Welcome {user.username} ({user.role})'
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'role': user.role,
+                'email': user.email
+            },
+            'token': session.sid,
+            'message': f'Welcome back, {username}!'
         })
     
     return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
 
-@app.route('/api/logout', methods=['POST'])
+@app.route('/api/auth/logout', methods=['POST'])
 @login_required
 def logout():
     logout_user()
-    return jsonify({'success': True, 'message': 'Logged out'})
+    return jsonify({'success': True, 'message': 'Logged out successfully'})
 
-@app.route('/api/current-user')
+@app.route('/api/auth/me', methods=['GET'])
 @login_required
-def current_user_info():
-    return jsonify(current_user.to_dict())
+def get_current_user():
+    return jsonify({
+        'id': current_user.id,
+        'username': current_user.username,
+        'role': current_user.role,
+        'email': current_user.email
+    })
 
 # ============================================
-# SCAN ROUTES (Pentest only)
+# SCANNING ROUTES
 # ============================================
 
-@app.route('/api/scan', methods=['POST'])
+@app.route('/api/scan/start', methods=['POST'])
 @login_required
 def start_scan():
-    """Start a new security scan (Pentest only)"""
-    if not current_user.has_permission('scan'):
-        return jsonify({'error': 'Permission denied'}), 403
+    if current_user.role != 'pentest':
+        return jsonify({'error': 'Only pentesters can start scans'}), 403
     
     data = request.json
     target = data.get('target')
-    scan_type = data.get('scan_type', 'full')
+    scan_type = data.get('scan_type', 'full')  # full, quick, custom
+    options = data.get('options', {})
     
-    # Create scan record
-    scan = Scan(
-        target=target,
-        scan_type=scan_type,
-        status='running',
-        created_by=current_user.id
-    )
-    db.session.add(scan)
-    db.session.commit()
+    # Generate scan ID
+    scan_id = str(uuid.uuid4())
     
-    # Run scan asynchronously (simplified - in production use Celery)
-    try:
-        if scan_type == 'nmap':
-            results = scan_engine.run_nmap_scan(target, 'full')
-        elif scan_type == 'quick':
-            results = scan_engine.run_nmap_scan(target, 'quick')
-        elif scan_type == 'web':
-            results = scan_engine.run_gobuster_scan(target)
-        else:
-            results = scan_engine.run_full_assessment(target)
-        
-        scan.results = json.dumps(results)
-        scan.status = 'completed'
-        
-        # Add findings to database
-        findings = results.get('all_findings', results.get('findings', []))
-        for finding_data in findings:
-            finding = Finding(
-                title=finding_data.get('title'),
-                severity=finding_data.get('severity'),
-                description=finding_data.get('description'),
-                remediation=finding_data.get('remediation'),
-                scan_id=scan.id
-            )
-            db.session.add(finding)
-        
-        scan.findings_count = len(findings)
-        scan.completed_at = datetime.utcnow()
-        db.session.commit()
-        
-    except Exception as e:
-        scan.status = 'failed'
-        scan.results = json.dumps({'error': str(e)})
-        db.session.commit()
-        return jsonify({'error': str(e)}), 500
+    # Start scan in background thread
+    def run_scan():
+        try:
+            update_status('running', f'Starting {scan_type} scan on {target}')
+            
+            # Run comprehensive scan based on type
+            if scan_type == 'quick':
+                results = scan_engine.quick_scan(target)
+            elif scan_type == 'full':
+                results = scan_engine.full_scan(target)
+            elif scan_type == 'web':
+                results = scan_engine.web_scan(target)
+            elif scan_type == 'network':
+                results = scan_engine.network_scan(target)
+            else:
+                results = scan_engine.custom_scan(target, options)
+            
+            # AI Analysis
+            update_status('analyzing', 'AI analyzing scan results...')
+            ai_analysis = ai_analyzer.analyze_results(results)
+            
+            # Generate findings
+            findings_list = scan_engine.generate_findings(results)
+            
+            # Store results
+            scans[scan_id] = {
+                'id': scan_id,
+                'target': target,
+                'scan_type': scan_type,
+                'status': 'completed',
+                'results': results,
+                'findings': findings_list,
+                'ai_analysis': ai_analysis,
+                'created_by': current_user.username,
+                'created_at': datetime.now().isoformat(),
+                'completed_at': datetime.now().isoformat()
+            }
+            
+            # Add to global findings
+            for finding in findings_list:
+                finding['scan_id'] = scan_id
+                finding['scan_target'] = target
+                findings.append(finding)
+            
+            # Emit completion event
+            socketio.emit('scan_completed', {
+                'scan_id': scan_id,
+                'findings_count': len(findings_list),
+                'message': f'Scan completed on {target}'
+            })
+            
+            update_status('completed', f'Scan completed. Found {len(findings_list)} findings.')
+            
+        except Exception as e:
+            scans[scan_id] = {
+                'id': scan_id,
+                'target': target,
+                'scan_type': scan_type,
+                'status': 'failed',
+                'error': str(e),
+                'created_by': current_user.username,
+                'created_at': datetime.now().isoformat()
+            }
+            socketio.emit('scan_failed', {'scan_id': scan_id, 'error': str(e)})
+            update_status('failed', f'Scan failed: {str(e)}')
     
-    return jsonify({'scan_id': scan.id, 'status': 'completed'})
-
-@app.route('/api/scans')
-@login_required
-def get_scans():
-    """Get scans (filtered by role)"""
-    if current_user.role == 'pentest':
-        scans = Scan.query.order_by(Scan.created_at.desc()).all()
-    else:
-        scans = Scan.query.filter_by(created_by=current_user.id).order_by(Scan.created_at.desc()).all()
+    def update_status(status, message):
+        socketio.emit('scan_status', {
+            'scan_id': scan_id,
+            'status': status,
+            'message': message
+        })
     
-    return jsonify([scan.to_dict() for scan in scans])
-
-@app.route('/api/scans/<scan_id>')
-@login_required
-def get_scan(scan_id):
-    """Get specific scan details"""
-    scan = Scan.query.get_or_404(scan_id)
-    
-    # Check permission
-    if scan.created_by != current_user.id and current_user.role != 'pentest':
-        return jsonify({'error': 'Permission denied'}), 403
-    
-    results = json.loads(scan.results) if scan.results else {}
-    findings = Finding.query.filter_by(scan_id=scan_id).all()
+    # Start background thread
+    thread = threading.Thread(target=run_scan)
+    thread.daemon = True
+    thread.start()
     
     return jsonify({
-        'scan': scan.to_dict(),
-        'results': results,
-        'findings': [f.to_dict() for f in findings]
+        'success': True,
+        'scan_id': scan_id,
+        'message': 'Scan started successfully'
     })
+
+@app.route('/api/scan/status/<scan_id>', methods=['GET'])
+@login_required
+def get_scan_status(scan_id):
+    scan = scans.get(scan_id)
+    if not scan:
+        return jsonify({'error': 'Scan not found'}), 404
+    
+    return jsonify({
+        'status': scan.get('status'),
+        'progress': scan.get('progress', 0),
+        'message': scan.get('message', 'Processing...')
+    })
+
+@app.route('/api/scan/results/<scan_id>', methods=['GET'])
+@login_required
+def get_scan_results(scan_id):
+    scan = scans.get(scan_id)
+    if not scan:
+        return jsonify({'error': 'Scan not found'}), 404
+    
+    # Check permission
+    if scan['created_by'] != current_user.username and current_user.role != 'pentest':
+        return jsonify({'error': 'Permission denied'}), 403
+    
+    return jsonify(scan)
+
+@app.route('/api/scans', methods=['GET'])
+@login_required
+def get_all_scans():
+    if current_user.role == 'pentest':
+        user_scans = list(scans.values())
+    else:
+        user_scans = [s for s in scans.values() if s['created_by'] == current_user.username]
+    
+    # Return simplified list
+    return jsonify([{
+        'id': s['id'],
+        'target': s['target'],
+        'scan_type': s['scan_type'],
+        'status': s['status'],
+        'findings_count': len(s.get('findings', [])),
+        'created_at': s['created_at'],
+        'completed_at': s.get('completed_at')
+    } for s in user_scans])
+
+# ============================================
+# EXPLOIT ROUTES
+# ============================================
+
+@app.route('/api/exploit/run', methods=['POST'])
+@login_required
+def run_exploit():
+    if current_user.role != 'pentest':
+        return jsonify({'error': 'Only pentesters can run exploits'}), 403
+    
+    data = request.json
+    exploit_name = data.get('exploit')
+    target = data.get('target')
+    options = data.get('options', {})
+    
+    try:
+        result = exploit_engine.run_exploit(exploit_name, target, options)
+        return jsonify({'success': True, 'result': result})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/exploits/list', methods=['GET'])
+@login_required
+def list_exploits():
+    exploits = exploit_engine.list_available_exploits()
+    return jsonify(exploits)
 
 # ============================================
 # REPORT ROUTES
 # ============================================
 
-@app.route('/api/reports/<scan_id>', methods=['GET'])
+@app.route('/api/report/generate', methods=['POST'])
 @login_required
-def generate_report(scan_id):
-    """Generate PDF report for a scan"""
-    scan = Scan.query.get_or_404(scan_id)
+def generate_report():
+    data = request.json
+    scan_ids = data.get('scan_ids', [])
+    report_type = data.get('type', 'executive')  # executive, technical, full
     
-    # Check permission
-    if scan.created_by != current_user.id and current_user.role != 'pentest':
-        return jsonify({'error': 'Permission denied'}), 403
+    # Gather scan data
+    report_scans = []
+    for scan_id in scan_ids:
+        scan = scans.get(scan_id)
+        if scan and (scan['created_by'] == current_user.username or current_user.role == 'pentest'):
+            report_scans.append(scan)
     
-    findings = Finding.query.filter_by(scan_id=scan_id).all()
-    results = json.loads(scan.results) if scan.results else {}
+    if not report_scans:
+        return jsonify({'error': 'No valid scans found'}), 404
     
     # Generate report
-    report_path = report_generator.generate_pdf_report(scan, findings, results)
+    report_data = report_engine.generate_report(report_scans, report_type, current_user.username)
+    
+    # Save report
+    report_id = str(uuid.uuid4())
+    report = {
+        'id': report_id,
+        'title': f"Security Assessment - {report_type.upper()} Report",
+        'type': report_type,
+        'scans': [s['id'] for s in report_scans],
+        'data': report_data,
+        'generated_by': current_user.username,
+        'generated_at': datetime.now().isoformat()
+    }
+    reports.append(report)
+    
+    return jsonify({
+        'success': True,
+        'report_id': report_id,
+        'report': report_data
+    })
+
+@app.route('/api/report/download/<report_id>', methods=['GET'])
+@login_required
+def download_report(report_id):
+    report = next((r for r in reports if r['id'] == report_id), None)
+    if not report:
+        return jsonify({'error': 'Report not found'}), 404
+    
+    # Generate PDF
+    pdf_path = report_engine.generate_pdf(report)
     
     return send_from_directory(
-        directory=os.path.dirname(report_path),
-        path=os.path.basename(report_path),
+        os.path.dirname(pdf_path),
+        os.path.basename(pdf_path),
         as_attachment=True
     )
 
-@app.route('/api/findings')
+@app.route('/api/reports', methods=['GET'])
+@login_required
+def get_reports():
+    if current_user.role == 'pentest':
+        user_reports = reports
+    else:
+        user_reports = [r for r in reports if r['generated_by'] == current_user.username]
+    
+    return jsonify(user_reports)
+
+# ============================================
+# FINDINGS ROUTES
+# ============================================
+
+@app.route('/api/findings', methods=['GET'])
 @login_required
 def get_findings():
-    """Get all findings (filtered by role)"""
     if current_user.role == 'pentest':
-        findings = Finding.query.all()
+        user_findings = findings
     else:
-        findings = Finding.query.join(Scan).filter(Scan.created_by == current_user.id).all()
+        user_scans = [s for s in scans.values() if s['created_by'] == current_user.username]
+        user_scan_ids = [s['id'] for s in user_scans]
+        user_findings = [f for f in findings if f['scan_id'] in user_scan_ids]
     
-    return jsonify([f.to_dict() for f in findings])
+    return jsonify(user_findings)
 
-# ============================================
-# ADMIN ROUTES (Pentest only)
-# ============================================
-
-@app.route('/api/users', methods=['GET'])
+@app.route('/api/findings/by-severity', methods=['GET'])
 @login_required
-def get_users():
-    """Get all users (admin only)"""
-    if not current_user.has_permission('manage_users'):
-        return jsonify({'error': 'Permission denied'}), 403
+def get_findings_by_severity():
+    severity = request.args.get('severity', 'all')
     
-    users = User.query.all()
-    return jsonify([u.to_dict() for u in users])
-
-@app.route('/api/users', methods=['POST'])
-@login_required
-def create_user():
-    """Create new user (admin only)"""
-    if not current_user.has_permission('manage_users'):
-        return jsonify({'error': 'Permission denied'}), 403
+    if current_user.role == 'pentest':
+        user_findings = findings
+    else:
+        user_scans = [s for s in scans.values() if s['created_by'] == current_user.username]
+        user_scan_ids = [s['id'] for s in user_scans]
+        user_findings = [f for f in findings if f['scan_id'] in user_scan_ids]
     
-    data = request.json
-    user = User(
-        username=data['username'],
-        email=data['email'],
-        role=data.get('role', 'client')
-    )
-    user.set_password(data['password'])
+    if severity != 'all':
+        user_findings = [f for f in user_findings if f.get('severity', '').lower() == severity.lower()]
     
-    db.session.add(user)
-    db.session.commit()
-    
-    return jsonify(user.to_dict()), 201
+    return jsonify(user_findings)
 
 # ============================================
 # DASHBOARD STATS
 # ============================================
 
-@app.route('/api/stats')
+@app.route('/api/dashboard/stats', methods=['GET'])
 @login_required
-def get_stats():
-    """Get dashboard statistics"""
+def get_dashboard_stats():
     if current_user.role == 'pentest':
-        total_scans = Scan.query.count()
-        critical_findings = Finding.query.filter_by(severity='Critical').count()
-        high_findings = Finding.query.filter_by(severity='High').count()
-        total_findings = Finding.query.count()
+        total_scans = len(scans)
+        completed_scans = len([s for s in scans.values() if s['status'] == 'completed'])
+        critical_findings = len([f for f in findings if f.get('severity') == 'Critical'])
+        high_findings = len([f for f in findings if f.get('severity') == 'High'])
+        medium_findings = len([f for f in findings if f.get('severity') == 'Medium'])
+        low_findings = len([f for f in findings if f.get('severity') == 'Low'])
+        total_findings = len(findings)
+        unique_targets = len(set([s['target'] for s in scans.values()]))
     else:
-        total_scans = Scan.query.filter_by(created_by=current_user.id).count()
-        critical_findings = Finding.query.join(Scan).filter(
-            Scan.created_by == current_user.id,
-            Finding.severity == 'Critical'
-        ).count()
-        high_findings = Finding.query.join(Scan).filter(
-            Scan.created_by == current_user.id,
-            Finding.severity == 'High'
-        ).count()
-        total_findings = Finding.query.join(Scan).filter(
-            Scan.created_by == current_user.id
-        ).count()
+        user_scans = [s for s in scans.values() if s['created_by'] == current_user.username]
+        user_scan_ids = [s['id'] for s in user_scans]
+        user_findings = [f for f in findings if f['scan_id'] in user_scan_ids]
+        
+        total_scans = len(user_scans)
+        completed_scans = len([s for s in user_scans if s['status'] == 'completed'])
+        critical_findings = len([f for f in user_findings if f.get('severity') == 'Critical'])
+        high_findings = len([f for f in user_findings if f.get('severity') == 'High'])
+        medium_findings = len([f for f in user_findings if f.get('severity') == 'Medium'])
+        low_findings = len([f for f in user_findings if f.get('severity') == 'Low'])
+        total_findings = len(user_findings)
+        unique_targets = len(set([s['target'] for s in user_scans]))
     
     return jsonify({
         'total_scans': total_scans,
+        'completed_scans': completed_scans,
         'critical_findings': critical_findings,
         'high_findings': high_findings,
+        'medium_findings': medium_findings,
+        'low_findings': low_findings,
         'total_findings': total_findings,
-        'user_role': current_user.role
+        'unique_targets': unique_targets,
+        'user_role': current_user.role,
+        'user_name': current_user.username
+    })
+
+@app.route('/api/dashboard/recent', methods=['GET'])
+@login_required
+def get_recent_activity():
+    if current_user.role == 'pentest':
+        recent_scans = sorted(scans.values(), key=lambda x: x.get('created_at', ''), reverse=True)[:10]
+    else:
+        user_scans = [s for s in scans.values() if s['created_by'] == current_user.username]
+        recent_scans = sorted(user_scans, key=lambda x: x.get('created_at', ''), reverse=True)[:10]
+    
+    return jsonify([{
+        'id': s['id'],
+        'target': s['target'],
+        'scan_type': s['scan_type'],
+        'status': s['status'],
+        'created_at': s['created_at'],
+        'findings_count': len(s.get('findings', []))
+    } for s in recent_scans])
+
+# ============================================
+# TOOLS CONFIGURATION
+# ============================================
+
+@app.route('/api/tools', methods=['GET'])
+@login_required
+def get_available_tools():
+    tools = [
+        {'name': 'Nmap', 'description': 'Network discovery and security scanning', 'category': 'network'},
+        {'name': 'Metasploit', 'description': 'Exploitation framework', 'category': 'exploit'},
+        {'name': 'Hydra', 'description': 'Password brute-forcing tool', 'category': 'auth'},
+        {'name': 'SQLmap', 'description': 'SQL injection detection and exploitation', 'category': 'web'},
+        {'name': 'Gobuster', 'description': 'Directory and DNS brute-forcing', 'category': 'web'},
+        {'name': 'Nikto', 'description': 'Web server scanner', 'category': 'web'},
+        {'name': 'Burp Suite', 'description': 'Web vulnerability scanner', 'category': 'web'},
+        {'name': 'Wireshark', 'description': 'Network protocol analyzer', 'category': 'network'}
+    ]
+    return jsonify(tools)
+
+# ============================================
+# HEALTH CHECK
+# ============================================
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    return jsonify({
+        'status': 'healthy',
+        'name': 'RedTeamKa',
+        'version': '1.0.0',
+        'timestamp': datetime.now().isoformat(),
+        'users': len(users),
+        'scans': len(scans),
+        'findings': len(findings)
     })
 
 # ============================================
@@ -281,28 +518,57 @@ def serve_static(path):
     return send_from_directory(app.static_folder, path)
 
 # ============================================
-# INITIALIZATION
+# WEB SOCKET EVENTS
+# ============================================
+
+@socketio.on('connect')
+def handle_connect():
+    print(f'Client connected: {request.sid}')
+    emit('connected', {'message': 'Connected to RedTeamKa'})
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print(f'Client disconnected: {request.sid}')
+
+# ============================================
+# MAIN
 # ============================================
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-        init_db()
+    init_users()
     
     print("""
-    ╔═══════════════════════════════════════════════════════════════╗
-    ║     RED TEAM ENTERPRISE FRAMEWORK - DUAL ROLE EDITION         ║
-    ║                                                               ║
-    ║  Access: http://localhost:8087                               ║
-    ║                                                               ║
-    ║  Default Credentials:                                        ║
-    ║    Pentester: pentest / Pentest@123                         ║
-    ║    Client:    client / Client@123                           ║
-    ║                                                               ║
-    ║  Roles:                                                      ║
-    ║    🔴 Pentester: Full access to scanning, reporting, admin   ║
-    ║    🔵 Client:    View-only access to reports                ║
-    ╚═══════════════════════════════════════════════════════════════╝
+    ╔═══════════════════════════════════════════════════════════════════╗
+    ║                                                                   ║
+    ║                    🔴 REDTEAMKA - Complete Platform 🔴            ║
+    ║                                                                   ║
+    ║              Enterprise Red Team Automation Framework             ║
+    ║                                                                   ║
+    ╠═══════════════════════════════════════════════════════════════════╣
+    ║                                                                   ║
+    ║  🌐 Web Interface: http://localhost:8888                         ║
+    ║  📡 API Endpoint: http://localhost:8888/api                      ║
+    ║                                                                   ║
+    ║  🔐 Default Credentials:                                         ║
+    ║     🔴 Pentester:  pentest / RedTeamKa@2024                      ║
+    ║     🔵 Client:     client / Client@2024                          ║
+    ║                                                                   ║
+    ║  🛠️  Integrated Tools:                                           ║
+    ║     • Nmap - Network scanning                                    ║
+    ║     • Metasploit - Exploitation                                  ║
+    ║     • Hydra - Password attacks                                   ║
+    ║     • SQLmap - SQL injection                                     ║
+    ║     • Gobuster - Directory brute-force                           ║
+    ║     • Nikto - Web vulnerability scanning                         ║
+    ║                                                                   ║
+    ║  🤖 AI Features:                                                 ║
+    ║     • Automated finding analysis                                 ║
+    ║     • Smart remediation suggestions                              ║
+    ║     • Risk scoring and prioritization                            ║
+    ║                                                                   ║
+    ╠═══════════════════════════════════════════════════════════════════╣
+    ║  ⚠️  EDUCATIONAL PURPOSE ONLY - Use responsibly                 ║
+    ╚═══════════════════════════════════════════════════════════════════╝
     """)
     
-    socketio.run(app, host='0.0.0.0', port=8087, debug=False)
+    socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
