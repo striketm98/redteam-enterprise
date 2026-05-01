@@ -1,53 +1,331 @@
-// Red Team Enterprise Framework - Main Application
+/**
+ * RedTeamKa - Main Application Entry Point
+ * Enterprise Red Team Automation Platform
+ */
 
-class RedTeamFramework {
-    constructor() {
-        this.socket = io();
-        this.currentView = 'dashboard';
-        this.targets = [];
-        this.findings = [];
-        this.credentials = [];
-        this.initializeEventListeners();
-        this.connectSocket();
-        this.loadDashboard();
-    }
+// Global App Object
+const RedTeamKa = {
+    // Configuration
+    config: {
+        apiBase: '/api',
+        wsBase: window.location.origin,
+        version: '3.0.0',
+        debug: false
+    },
     
-    initializeEventListeners() {
-        // Navigation
+    // State
+    state: {
+        token: null,
+        user: null,
+        currentView: 'dashboard',
+        isLoading: false,
+        notifications: [],
+        webSocket: null
+    },
+    
+    // DOM Elements
+    elements: {
+        loginScreen: null,
+        dashboard: null,
+        sidebar: null,
+        mainContent: null,
+        contentArea: null,
+        pageTitle: null,
+        userName: null,
+        userRole: null,
+        userAvatar: null,
+        menuToggle: null,
+        logoutBtn: null
+    },
+    
+    /**
+     * Initialize Application
+     */
+    async init() {
+        console.log('🚀 RedTeamKa v' + this.config.version + ' initializing...');
+        
+        this.cacheElements();
+        this.bindEvents();
+        await this.checkAuth();
+        this.initWebSocket();
+        
+        console.log('✅ RedTeamKa initialized');
+    },
+    
+    /**
+     * Cache DOM Elements
+     */
+    cacheElements() {
+        this.elements = {
+            loginScreen: document.getElementById('loginScreen'),
+            dashboard: document.getElementById('dashboard'),
+            sidebar: document.getElementById('sidebar'),
+            mainContent: document.getElementById('mainContent'),
+            contentArea: document.getElementById('contentArea'),
+            pageTitle: document.getElementById('pageTitle'),
+            userName: document.getElementById('userName'),
+            userRole: document.getElementById('userRole'),
+            userAvatar: document.getElementById('userAvatar'),
+            menuToggle: document.getElementById('menuToggle'),
+            logoutBtn: document.getElementById('logoutBtn'),
+            loginForm: document.getElementById('loginForm'),
+            loginUsername: document.getElementById('loginUsername'),
+            loginPassword: document.getElementById('loginPassword')
+        };
+    },
+    
+    /**
+     * Bind Event Listeners
+     */
+    bindEvents() {
+        // Login form
+        if (this.elements.loginForm) {
+            this.elements.loginForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.login();
+            });
+        }
+        
+        // Logout button
+        if (this.elements.logoutBtn) {
+            this.elements.logoutBtn.addEventListener('click', () => {
+                this.logout();
+            });
+        }
+        
+        // Menu toggle for mobile
+        if (this.elements.menuToggle) {
+            this.elements.menuToggle.addEventListener('click', () => {
+                this.toggleMobileMenu();
+            });
+        }
+        
+        // Navigation items
         document.querySelectorAll('.nav-item').forEach(item => {
             item.addEventListener('click', (e) => {
                 e.preventDefault();
                 const view = item.dataset.view;
-                this.switchView(view);
+                if (view) {
+                    this.switchView(view);
+                }
             });
         });
         
-        // Search
-        const searchInput = document.querySelector('.search-bar input');
-        if (searchInput) {
-            searchInput.addEventListener('input', (e) => {
-                this.handleSearch(e.target.value);
-            });
+        // Close mobile menu on window resize
+        window.addEventListener('resize', () => {
+            if (window.innerWidth > 768) {
+                this.closeMobileMenu();
+            }
+        });
+    },
+    
+    /**
+     * Toggle Mobile Menu
+     */
+    toggleMobileMenu() {
+        this.elements.sidebar.classList.toggle('mobile-open');
+    },
+    
+    /**
+     * Close Mobile Menu
+     */
+    closeMobileMenu() {
+        this.elements.sidebar.classList.remove('mobile-open');
+    },
+    
+    /**
+     * Initialize WebSocket Connection
+     */
+    initWebSocket() {
+        this.state.webSocket = io();
+        
+        this.state.webSocket.on('connect', () => {
+            console.log('🔌 WebSocket connected');
+            this.showNotification('Connected to server', 'success');
+        });
+        
+        this.state.webSocket.on('disconnect', () => {
+            console.log('🔌 WebSocket disconnected');
+            this.showNotification('Disconnected from server', 'warning');
+        });
+        
+        this.state.webSocket.on('scan_status', (data) => {
+            this.handleScanStatus(data);
+        });
+        
+        this.state.webSocket.on('scan_completed', (data) => {
+            this.handleScanCompleted(data);
+        });
+        
+        this.state.webSocket.on('scan_failed', (data) => {
+            this.handleScanFailed(data);
+        });
+        
+        this.state.webSocket.on('connected', (data) => {
+            console.log('📡 Server message:', data.message);
+        });
+    },
+    
+    /**
+     * Check Authentication Status
+     */
+    async checkAuth() {
+        const token = localStorage.getItem('redteamka_token');
+        const savedUser = localStorage.getItem('redteamka_user');
+        
+        if (token && savedUser) {
+            this.state.token = token;
+            this.state.user = JSON.parse(savedUser);
+            
+            try {
+                const response = await this.apiGet('/auth/me');
+                if (response.ok) {
+                    this.showDashboard();
+                    return;
+                }
+            } catch (error) {
+                console.error('Auth check failed:', error);
+            }
         }
-    }
-    
-    connectSocket() {
-        this.socket.on('connect', () => {
-            console.log('Connected to Red Team Framework');
-            this.showNotification('Connected to framework', 'success');
-        });
         
-        this.socket.on('command_result', (data) => {
-            this.handleCommandResult(data);
-        });
-        
-        this.socket.on('connected', (data) => {
-            console.log(data.status);
-        });
-    }
+        this.showLogin();
+    },
     
+    /**
+     * Show Login Screen
+     */
+    showLogin() {
+        if (this.elements.loginScreen) {
+            this.elements.loginScreen.style.display = 'flex';
+        }
+        if (this.elements.dashboard) {
+            this.elements.dashboard.style.display = 'none';
+        }
+    },
+    
+    /**
+     * Show Dashboard
+     */
+    showDashboard() {
+        if (this.elements.loginScreen) {
+            this.elements.loginScreen.style.display = 'none';
+        }
+        if (this.elements.dashboard) {
+            this.elements.dashboard.style.display = 'block';
+        }
+        
+        this.updateUserInfo();
+        this.updateRoleBasedUI();
+        this.switchView('dashboard');
+    },
+    
+    /**
+     * Update User Information in UI
+     */
+    updateUserInfo() {
+        if (this.elements.userName) {
+            this.elements.userName.textContent = this.state.user.username;
+        }
+        
+        if (this.elements.userAvatar) {
+            const initial = this.state.user.username.substring(0, 2).toUpperCase();
+            this.elements.userAvatar.textContent = initial;
+        }
+        
+        if (this.elements.userRole) {
+            const roleText = this.state.user.role === 'pentest' ? 'PENTESTER' : 'CLIENT';
+            this.elements.userRole.textContent = roleText;
+            if (this.state.user.role === 'client') {
+                this.elements.userRole.classList.add('client');
+            }
+        }
+    },
+    
+    /**
+     * Update UI Based on User Role
+     */
+    updateRoleBasedUI() {
+        const isPentest = this.state.user.role === 'pentest';
+        
+        document.querySelectorAll('.pentest-only').forEach(el => {
+            el.style.display = isPentest ? 'flex' : 'none';
+        });
+    },
+    
+    /**
+     * Login User
+     */
+    async login() {
+        const username = this.elements.loginUsername?.value;
+        const password = this.elements.loginPassword?.value;
+        
+        if (!username || !password) {
+            this.showNotification('Please enter username and password', 'error');
+            return;
+        }
+        
+        this.setLoading(true);
+        
+        try {
+            const response = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                this.state.token = data.token;
+                this.state.user = data.user;
+                
+                localStorage.setItem('redteamka_token', this.state.token);
+                localStorage.setItem('redteamka_user', JSON.stringify(this.state.user));
+                
+                this.showNotification(`Welcome back, ${data.user.username}!`, 'success');
+                this.showDashboard();
+            } else {
+                this.showNotification(data.message || 'Login failed', 'error');
+            }
+        } catch (error) {
+            this.showNotification('Login error: ' + error.message, 'error');
+        } finally {
+            this.setLoading(false);
+        }
+    },
+    
+    /**
+     * Logout User
+     */
+    async logout() {
+        if (this.state.token) {
+            try {
+                await this.apiPost('/auth/logout');
+            } catch (error) {
+                console.error('Logout error:', error);
+            }
+        }
+        
+        localStorage.removeItem('redteamka_token');
+        localStorage.removeItem('redteamka_user');
+        
+        this.state.token = null;
+        this.state.user = null;
+        
+        if (this.state.webSocket) {
+            this.state.webSocket.disconnect();
+        }
+        
+        this.showLogin();
+        this.clearForms();
+        this.showNotification('Logged out successfully', 'success');
+    },
+    
+    /**
+     * Switch View
+     */
     switchView(view) {
-        this.currentView = view;
+        this.state.currentView = view;
         
         // Update active nav item
         document.querySelectorAll('.nav-item').forEach(item => {
@@ -57,706 +335,262 @@ class RedTeamFramework {
             }
         });
         
+        // Update page title
+        const titles = {
+            dashboard: 'Dashboard',
+            scan: 'New Security Scan',
+            scans: 'Scan History',
+            exploits: 'Exploit Framework',
+            findings: 'Security Findings',
+            reports: 'Reports',
+            labs: 'Lab Environment',
+            tools: 'Security Tools',
+            admin: 'Administration'
+        };
+        
+        if (this.elements.pageTitle) {
+            this.elements.pageTitle.textContent = titles[view] || 'Dashboard';
+        }
+        
         // Load view content
+        this.loadView(view);
+    },
+    
+    /**
+     * Load View Content
+     */
+    loadView(view) {
+        if (!this.elements.contentArea) return;
+        
+        this.elements.contentArea.innerHTML = '<div class="loader"></div>';
+        
         switch(view) {
             case 'dashboard':
-                this.loadDashboard();
+                if (window.Dashboard) Dashboard.load();
                 break;
-            case 'attack':
-                this.loadAttackSurface();
+            case 'scan':
+                if (window.Scans) Scans.loadScanForm();
                 break;
-            case 'graph':
-                this.loadAttackGraph();
+            case 'scans':
+                if (window.Scans) Scans.loadScansList();
                 break;
-            case 'credentials':
-                this.loadCredentials();
+            case 'exploits':
+                if (window.Exploits) Exploits.load();
                 break;
-            case 'privesc':
-                this.loadPrivesc();
-                break;
-            case 'labs':
-                this.loadLabs();
+            case 'findings':
+                if (window.Findings) Findings.load();
                 break;
             case 'reports':
-                this.loadReports();
+                if (window.Reports) Reports.load();
                 break;
-            case 'settings':
-                this.loadSettings();
+            case 'labs':
+                if (window.Labs) Labs.load();
                 break;
+            case 'tools':
+                if (window.Tools) Tools.load();
+                break;
+            case 'admin':
+                if (window.Admin) Admin.load();
+                break;
+            default:
+                if (window.Dashboard) Dashboard.load();
         }
-    }
+    },
     
-    async loadDashboard() {
-        const contentArea = document.getElementById('content-area');
-        
-        contentArea.innerHTML = `
-            <div class="dashboard-grid">
-                <div class="card">
-                    <div class="card-header">
-                        <h3>Active Targets</h3>
-                        <i class="fas fa-crosshairs"></i>
-                    </div>
-                    <div class="card-value" id="target-count">0</div>
-                    <div class="card-trend">+2 this session</div>
-                </div>
-                
-                <div class="card">
-                    <div class="card-header">
-                        <h3>Credentials Found</h3>
-                        <i class="fas fa-key"></i>
-                    </div>
-                    <div class="card-value" id="cred-count">0</div>
-                    <div class="card-trend">+5 new</div>
-                </div>
-                
-                <div class="card">
-                    <div class="card-header">
-                        <h3>Vulnerabilities</h3>
-                        <i class="fas fa-bug"></i>
-                    </div>
-                    <div class="card-value" id="vuln-count">0</div>
-                    <div class="card-trend">Critical: 3</div>
-                </div>
-                
-                <div class="card">
-                    <div class="card-header">
-                        <h3>Success Rate</h3>
-                        <i class="fas fa-chart-line"></i>
-                    </div>
-                    <div class="card-value" id="success-rate">0%</div>
-                    <div class="card-trend">↑ 12%</div>
-                </div>
-            </div>
-            
-            <div class="commands-panel">
-                <h3>Command Center</h3>
-                <div class="command-input">
-                    <input type="text" id="command-input" placeholder="Enter command..." autocomplete="off">
-                    <button id="execute-btn">Execute</button>
-                </div>
-                <div class="output-area" id="output-area">
-                    <div class="output-line">> Ready for commands</div>
-                </div>
-            </div>
-            
-            <div class="card" style="margin-top: 24px;">
-                <div class="card-header">
-                    <h3>Recent Activity</h3>
-                    <i class="fas fa-history"></i>
-                </div>
-                <div id="activity-log"></div>
-            </div>
-        `;
-        
-        // Load real data from API
-        await this.loadStats();
-        
-        // Setup command execution
-        const executeBtn = document.getElementById('execute-btn');
-        const commandInput = document.getElementById('command-input');
-        
-        if (executeBtn) {
-            executeBtn.addEventListener('click', () => {
-                const command = commandInput.value;
-                if (command) {
-                    this.executeCommand(command);
-                    commandInput.value = '';
-                }
-            });
-        }
-        
-        if (commandInput) {
-            commandInput.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    executeBtn.click();
-                }
-            });
-        }
-    }
+    /**
+     * API GET Request
+     */
+    async apiGet(endpoint) {
+        return this.apiRequest('GET', endpoint);
+    },
     
-    async loadStats() {
-        try {
-            const response = await fetch('/api/stats');
-            const stats = await response.json();
-            
-            document.getElementById('target-count').textContent = stats.targets || 0;
-            document.getElementById('cred-count').textContent = stats.credentials || 0;
-            document.getElementById('vuln-count').textContent = stats.vulnerabilities || 0;
-            document.getElementById('success-rate').textContent = `${stats.success_rate || 0}%`;
-        } catch (error) {
-            console.error('Failed to load stats:', error);
-        }
-    }
+    /**
+     * API POST Request
+     */
+    async apiPost(endpoint, data = null) {
+        return this.apiRequest('POST', endpoint, data);
+    },
     
-    executeCommand(command) {
-        const outputArea = document.getElementById('output-area');
-        const outputLine = document.createElement('div');
-        outputLine.className = 'output-line';
-        outputLine.innerHTML = `> ${command}`;
-        outputArea.appendChild(outputLine);
-        
-        // Send command via WebSocket
-        this.socket.emit('execute_command', { command });
-        
-        // Add to activity log
-        this.addActivity(`Executed: ${command}`, 'info');
-    }
+    /**
+     * API PUT Request
+     */
+    async apiPut(endpoint, data = null) {
+        return this.apiRequest('PUT', endpoint, data);
+    },
     
-    handleCommandResult(data) {
-        const outputArea = document.getElementById('output-area');
-        
-        if (data.output) {
-            const lines = data.output.split('\n');
-            lines.forEach(line => {
-                if (line.trim()) {
-                    const outputLine = document.createElement('div');
-                    outputLine.className = 'output-line';
-                    outputLine.innerHTML = line;
-                    outputArea.appendChild(outputLine);
-                }
-            });
-        }
-        
-        if (data.error) {
-            const errorLine = document.createElement('div');
-            errorLine.className = 'output-line';
-            errorLine.style.color = 'var(--danger)';
-            errorLine.innerHTML = `[ERROR] ${data.error}`;
-            outputArea.appendChild(errorLine);
-        }
-        
-        // Auto-scroll
-        outputArea.scrollTop = outputArea.scrollHeight;
-        
-        // Add to activity
-        this.addActivity(`Command completed with status: ${data.status}`, data.status === 'completed' ? 'success' : 'error');
-    }
+    /**
+     * API DELETE Request
+     */
+    async apiDelete(endpoint) {
+        return this.apiRequest('DELETE', endpoint);
+    },
     
-    async loadAttackSurface() {
-        const contentArea = document.getElementById('content-area');
-        contentArea.innerHTML = `
-            <div class="card">
-                <div class="card-header">
-                    <h3>Target Management</h3>
-                    <button class="btn btn-primary" onclick="framework.addTarget()">
-                        <i class="fas fa-plus"></i> Add Target
-                    </button>
-                </div>
-                <table class="data-table" id="targets-table">
-                    <thead>
-                        <tr>
-                            <th>Target</th>
-                            <th>Ports</th>
-                            <th>Services</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="targets-list"></tbody>
-                </table>
-            </div>
-        `;
-        
-        await this.loadTargets();
-    }
-    
-    async loadTargets() {
-        try {
-            const response = await fetch('/api/targets');
-            const targets = await response.json();
-            const tbody = document.getElementById('targets-list');
-            
-            if (tbody) {
-                tbody.innerHTML = targets.map(target => `
-                    <tr>
-                        <td>${target.address}</td>
-                        <td>${target.ports?.join(', ') || '-'}</td>
-                        <td>${target.services?.join(', ') || '-'}</td>
-                        <td><span class="status-badge status-${target.status}">${target.status}</span></td>
-                        <td>
-                            <button onclick="framework.scanTarget('${target.address}')" class="btn-sm">Scan</button>
-                            <button onclick="framework.removeTarget('${target.address}')" class="btn-sm btn-danger">Remove</button>
-                        </td>
-                    </tr>
-                `).join('');
+    /**
+     * Generic API Request
+     */
+    async apiRequest(method, endpoint, data = null) {
+        const url = this.config.apiBase + endpoint;
+        const options = {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json'
             }
-        } catch (error) {
-            console.error('Failed to load targets:', error);
-        }
-    }
-    
-    async loadAttackGraph() {
-        const contentArea = document.getElementById('content-area');
-        contentArea.innerHTML = `
-            <div class="card">
-                <div class="card-header">
-                    <h3>Attack Path Analysis</h3>
-                    <button class="btn btn-primary" onclick="framework.generateGraph()">
-                        <i class="fas fa-sync"></i> Generate
-                    </button>
-                </div>
-                <div id="graph-visualization" style="min-height: 500px; background: var(--darker); border-radius: 8px; padding: 20px;">
-                    <div style="text-align: center; color: var(--text-muted);">
-                        <i class="fas fa-project-diagram" style="font-size: 48px; margin-bottom: 16px; display: block;"></i>
-                        <p>Click "Generate" to visualize attack paths</p>
-                    </div>
-                </div>
-            </div>
-        `;
-    }
-    
-    async loadCredentials() {
-        const contentArea = document.getElementById('content-area');
-        contentArea.innerHTML = `
-            <div class="card">
-                <div class="card-header">
-                    <h3>Credential Database</h3>
-                    <button class="btn btn-primary" onclick="framework.addCredential()">
-                        <i class="fas fa-plus"></i> Add Credential
-                    </button>
-                </div>
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Username</th>
-                            <th>Password</th>
-                            <th>Source</th>
-                            <th>Strength</th>
-                            <th>Reuse Score</th>
-                        </tr>
-                    </thead>
-                    <tbody id="creds-list"></tbody>
-                </table>
-            </div>
-        `;
+        };
         
-        await this.loadCredentialsList();
-    }
-    
-    async loadCredentialsList() {
+        if (this.state.token) {
+            options.headers['Authorization'] = `Bearer ${this.state.token}`;
+        }
+        
+        if (data) {
+            options.body = JSON.stringify(data);
+        }
+        
         try {
-            const response = await fetch('/api/credentials');
-            const creds = await response.json();
-            const tbody = document.getElementById('creds-list');
+            const response = await fetch(url, options);
+            const result = await response.json();
             
-            if (tbody) {
-                tbody.innerHTML = creds.map(cred => `
-                    <tr>
-                        <td><code>${cred.user}</code></td>
-                        <td><code>${cred.pass.substring(0, 3)}***</code></td>
-                        <td>${cred.source}</td>
-                        <td><span class="strength-${cred.strength.toLowerCase()}">${cred.strength}</span></td>
-                        <td>${cred.reuse_score || 'N/A'}</td>
-                    </tr>
-                `).join('');
+            if (!response.ok) {
+                throw new Error(result.message || result.error || 'Request failed');
             }
+            
+            return result;
         } catch (error) {
-            console.error('Failed to load credentials:', error);
+            console.error(`API ${method} ${endpoint} error:`, error);
+            throw error;
         }
-    }
+    },
     
-    async loadPrivesc() {
-        const contentArea = document.getElementById('content-area');
-        contentArea.innerHTML = `
-            <div class="card">
-                <div class="card-header">
-                    <h3>Privilege Escalation Analysis</h3>
-                    <button class="btn btn-primary" onclick="framework.analyzePrivesc()">
-                        <i class="fas fa-search"></i> Analyze System
-                    </button>
-                </div>
-                <div id="privesc-results"></div>
-            </div>
-        `;
-    }
-    
-    async loadLabs() {
-        const contentArea = document.getElementById('content-area');
-        contentArea.innerHTML = `
-            <div class="card">
-                <div class="card-header">
-                    <h3>Lab Environment Manager</h3>
-                    <button class="btn btn-primary" onclick="framework.deployLab()">
-                        <i class="fas fa-play"></i> Deploy Lab
-                    </button>
-                </div>
-                <div id="lab-status"></div>
-            </div>
-        `;
+    /**
+     * Handle Scan Status Update
+     */
+    handleScanStatus(data) {
+        const statusDiv = document.getElementById('scanStatus');
+        const statusMessage = document.getElementById('scanStatusMessage');
         
-        await this.loadLabStatus();
-    }
-    
-    async loadReports() {
-        const contentArea = document.getElementById('content-area');
-        contentArea.innerHTML = `
-            <div class="card">
-                <div class="card-header">
-                    <h3>Report Generation</h3>
-                    <button class="btn btn-primary" onclick="framework.generateReport()">
-                        <i class="fas fa-file-pdf"></i> Generate Report
-                    </button>
-                </div>
-                <div id="report-preview"></div>
-            </div>
-        `;
-    }
-    
-    loadSettings() {
-        const contentArea = document.getElementById('content-area');
-        contentArea.innerHTML = `
-            <div class="card">
-                <div class="card-header">
-                    <h3>Framework Settings</h3>
-                </div>
-                <div style="padding: 20px;">
-                    <div class="setting-group">
-                        <label>Safe Mode</label>
-                        <input type="checkbox" id="safe-mode" checked>
-                        <small>Restrict dangerous commands</small>
-                    </div>
-                    <div class="setting-group">
-                        <label>Auto-Save Sessions</label>
-                        <input type="checkbox" id="auto-save" checked>
-                        <small>Automatically save session data</small>
-                    </div>
-                    <div class="setting-group">
-                        <label>API Key</label>
-                        <input type="password" id="api-key" placeholder="Enter API key for integrations">
-                    </div>
-                    <button class="btn btn-primary" onclick="framework.saveSettings()">Save Settings</button>
-                </div>
-            </div>
-        `;
-    }
-    
-    addActivity(message, type = 'info') {
-        const activityLog = document.getElementById('activity-log');
-        if (activityLog) {
-            const entry = document.createElement('div');
-            entry.className = 'activity-entry';
-            entry.style.padding = '8px 0';
-            entry.style.borderBottom = '1px solid var(--gray)';
-            entry.style.fontSize = '12px';
-            entry.innerHTML = `
-                <span style="color: var(--text-muted);">[${new Date().toLocaleTimeString()}]</span>
-                <span style="color: ${type === 'success' ? 'var(--success)' : type === 'error' ? 'var(--danger)' : 'var(--info)'}">${message}</span>
-            `;
-            activityLog.insertBefore(entry, activityLog.firstChild);
-            
-            // Limit log entries
-            while (activityLog.children.length > 50) {
-                activityLog.removeChild(activityLog.lastChild);
-            }
+        if (statusDiv && statusMessage) {
+            statusDiv.classList.remove('hidden');
+            statusMessage.textContent = data.message;
         }
-    }
+        
+        this.showNotification(data.message, 'info');
+    },
     
+    /**
+     * Handle Scan Completion
+     */
+    handleScanCompleted(data) {
+        this.showNotification(data.message, 'success');
+        
+        if (this.state.currentView === 'scans') {
+            if (window.Scans) Scans.loadScansList();
+        }
+        
+        if (this.state.currentView === 'dashboard') {
+            if (window.Dashboard) Dashboard.load();
+        }
+    },
+    
+    /**
+     * Handle Scan Failure
+     */
+    handleScanFailed(data) {
+        this.showNotification(`Scan failed: ${data.error}`, 'error');
+        
+        const statusDiv = document.getElementById('scanStatus');
+        if (statusDiv) {
+            statusDiv.classList.add('hidden');
+        }
+    },
+    
+    /**
+     * Show Notification
+     */
     showNotification(message, type = 'info') {
-        // Create notification element
         const notification = document.createElement('div');
         notification.className = `notification notification-${type}`;
-        notification.style.cssText = `
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: var(--dark);
-            border-left: 4px solid ${type === 'success' ? 'var(--success)' : type === 'error' ? 'var(--danger)' : 'var(--info)'};
-            padding: 12px 20px;
-            border-radius: 8px;
-            z-index: 1000;
-            animation: slideIn 0.3s ease;
-        `;
+        
+        const icons = {
+            success: 'fa-check-circle',
+            error: 'fa-exclamation-circle',
+            warning: 'fa-exclamation-triangle',
+            info: 'fa-info-circle'
+        };
+        
         notification.innerHTML = `
-            <i class="fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'}"></i>
+            <i class="fas ${icons[type] || icons.info}"></i>
             <span>${message}</span>
         `;
         
         document.body.appendChild(notification);
         
         setTimeout(() => {
-            notification.style.animation = 'slideOut 0.3s ease';
+            notification.classList.add('fade-out');
             setTimeout(() => notification.remove(), 300);
-        }, 3000);
-    }
+        }, 5000);
+    },
     
-    // API Methods
-    async addTarget() {
-        const address = prompt('Enter target IP or hostname:');
-        if (address) {
-            try {
-                const response = await fetch('/api/targets', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ address })
-                });
-                
-                if (response.ok) {
-                    this.showNotification(`Target ${address} added`, 'success');
-                    this.loadTargets();
-                }
-            } catch (error) {
-                this.showNotification('Failed to add target', 'error');
+    /**
+     * Set Loading State
+     */
+    setLoading(isLoading) {
+        this.state.isLoading = isLoading;
+        
+        const loader = document.querySelector('.global-loader');
+        if (isLoading) {
+            if (!loader) {
+                const loaderDiv = document.createElement('div');
+                loaderDiv.className = 'global-loader';
+                loaderDiv.innerHTML = '<div class="loader"></div>';
+                document.body.appendChild(loaderDiv);
             }
+        } else if (loader) {
+            loader.remove();
         }
-    }
+    },
     
-    async scanTarget(address) {
-        this.showNotification(`Scanning ${address}...`, 'info');
-        try {
-            const response = await fetch('/api/scan', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ target: address })
-            });
-            const result = await response.json();
-            this.showNotification(`Scan completed for ${address}`, 'success');
-            this.loadTargets();
-        } catch (error) {
-            this.showNotification('Scan failed', 'error');
+    /**
+     * Clear Form Inputs
+     */
+    clearForms() {
+        if (this.elements.loginUsername) {
+            this.elements.loginUsername.value = '';
         }
-    }
+        if (this.elements.loginPassword) {
+            this.elements.loginPassword.value = '';
+        }
+    },
     
-    async generateGraph() {
-        this.showNotification('Generating attack graph...', 'info');
-        // Implementation for graph generation
-    }
+    /**
+     * Get Current User
+     */
+    getCurrentUser() {
+        return this.state.user;
+    },
     
-    async analyzePrivesc() {
-        this.showNotification('Analyzing for privilege escalation vectors...', 'info');
-        // Implementation for privesc analysis
-    }
+    /**
+     * Get Auth Token
+     */
+    getToken() {
+        return this.state.token;
+    },
     
-    async deployLab() {
-        this.showNotification('Deploying lab environment...', 'info');
-        // Implementation for lab deployment
-    }
+    /**
+     * Check if User is Pentester
+     */
+    isPentester() {
+        return this.state.user && this.state.user.role === 'pentest';
+    },
     
-    async generateReport() {
-        this.showNotification('Generating penetration test report...', 'info');
-        // Implementation for report generation
+    /**
+     * Check if User is Client
+     */
+    isClient() {
+        return this.state.user && this.state.user.role === 'client';
     }
-    
-    saveSettings() {
-        this.showNotification('Settings saved successfully', 'success');
-    }
-}
+};
 
-// Initialize framework
-const framework = new RedTeamFramework();
-
-// Add CSS animations
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes slideIn {
-        from {
-            transform: translateX(100%);
-            opacity: 0;
-        }
-        to {
-            transform: translateX(0);
-            opacity: 1;
-        }
-    }
-    
-    @keyframes slideOut {
-        from {
-            transform: translateX(0);
-            opacity: 1;
-        }
-        to {
-            transform: translateX(100%);
-            opacity: 0;
-        }
-    }
-`;
-document.head.appendChild(style);
-// Role-based UI management
-class RedTeamApp {
-    constructor() {
-        this.currentUser = null;
-        this.init();
-    }
-    
-    async init() {
-        await this.checkAuth();
-        this.setupEventListeners();
-        this.loadDashboard();
-    }
-    
-    async checkAuth() {
-        try {
-            const response = await fetch('/api/current-user');
-            if (response.ok) {
-                this.currentUser = await response.json();
-                this.updateUIForRole();
-            } else {
-                this.showLogin();
-            }
-        } catch (error) {
-            this.showLogin();
-        }
-    }
-    
-    updateUIForRole() {
-        const isPentest = this.currentUser.role === 'pentest';
-        
-        // Show/hide pentest-only elements
-        const pentestElements = document.querySelectorAll('.pentest-only');
-        pentestElements.forEach(el => {
-            el.style.display = isPentest ? 'block' : 'none';
-        });
-        
-        // Update role badge
-        const roleBadge = document.getElementById('role-badge');
-        if (roleBadge) {
-            roleBadge.textContent = this.currentUser.role.toUpperCase();
-            roleBadge.className = `role-badge role-${this.currentUser.role}`;
-        }
-        
-        // Update navigation
-        const nav = document.getElementById('main-nav');
-        if (nav) {
-            let navHtml = `
-                <a href="#dashboard" class="nav-item">Dashboard</a>
-                <a href="#reports" class="nav-item">Reports</a>
-            `;
-            
-            if (isPentest) {
-                navHtml += `
-                    <a href="#scan" class="nav-item">New Scan</a>
-                    <a href="#findings" class="nav-item">Findings</a>
-                    <a href="#admin" class="nav-item">Admin</a>
-                `;
-            }
-            
-            nav.innerHTML = navHtml;
-        }
-    }
-    
-    async login(username, password) {
-        try {
-            const response = await fetch('/api/login', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({username, password})
-            });
-            
-            const data = await response.json();
-            
-            if (data.success) {
-                this.currentUser = data.user;
-                this.updateUIForRole();
-                this.loadDashboard();
-                this.showNotification(`Welcome ${data.user.username}!`, 'success');
-            } else {
-                this.showNotification('Login failed', 'error');
-            }
-        } catch (error) {
-            this.showNotification('Login error', 'error');
-        }
-    }
-    
-    async startScan(target, scanType) {
-        if (this.currentUser.role !== 'pentest') {
-            this.showNotification('Only pentesters can start scans', 'error');
-            return;
-        }
-        
-        try {
-            const response = await fetch('/api/scan', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({target, scan_type: scanType})
-            });
-            
-            if (response.ok) {
-                this.showNotification(`Scan started for ${target}`, 'success');
-                this.loadDashboard();
-            } else {
-                this.showNotification('Scan failed to start', 'error');
-            }
-        } catch (error) {
-            this.showNotification('Error starting scan', 'error');
-        }
-    }
-    
-    async loadDashboard() {
-        const stats = await fetch('/api/stats').then(r => r.json());
-        const scans = await fetch('/api/scans').then(r => r.json());
-        
-        // Update dashboard with stats and scans
-        this.renderDashboard(stats, scans);
-    }
-    
-    renderDashboard(stats, scans) {
-        const container = document.getElementById('dashboard-content');
-        if (!container) return;
-        
-        container.innerHTML = `
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <h3>Total Scans</h3>
-                    <div class="value">${stats.total_scans}</div>
-                </div>
-                <div class="stat-card">
-                    <h3>Critical Findings</h3>
-                    <div class="value critical">${stats.critical_findings}</div>
-                </div>
-                <div class="stat-card">
-                    <h3>High Findings</h3>
-                    <div class="value high">${stats.high_findings}</div>
-                </div>
-            </div>
-            
-            <div class="scans-list">
-                <h2>Recent Scans</h2>
-                ${scans.map(scan => `
-                    <div class="scan-item">
-                        <span>${scan.target}</span>
-                        <span class="status-${scan.status}">${scan.status}</span>
-                        <span>${scan.findings_count} findings</span>
-                        <button onclick="app.viewScan('${scan.id}')">View</button>
-                        ${this.currentUser.role === 'pentest' ? 
-                            `<button onclick="app.generateReport('${scan.id}')">Generate Report</button>` : 
-                            `<button onclick="app.downloadReport('${scan.id}')">Download Report</button>`
-                        }
-                    </div>
-                `).join('')}
-            </div>
-        `;
-    }
-    
-    async generateReport(scanId) {
-        window.open(`/api/reports/${scanId}`, '_blank');
-    }
-    
-    showLogin() {
-        // Show login modal
-        const loginHtml = `
-            <div class="login-modal">
-                <div class="login-container">
-                    <h2>Red Team Platform</h2>
-                    <input type="text" id="login-username" placeholder="Username">
-                    <input type="password" id="login-password" placeholder="Password">
-                    <button onclick="app.login(document.getElementById('login-username').value, document.getElementById('login-password').value)">
-                        Login
-                    </button>
-                    <div class="demo-creds">
-                        <small>Pentest: pentest / Pentest@123</small>
-                        <small>Client: client / Client@123</small>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        document.body.innerHTML = loginHtml;
-    }
-    
-    showNotification(message, type) {
-        // Implement notification system
-        console.log(`${type}: ${message}`);
-    }
-}
-
-// Initialize app
-const app = new RedTeamApp();
+// Initialize app when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+    window.RedTeamKa = RedTeamKa;
+    RedTeamKa.init();
+});

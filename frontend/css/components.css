@@ -1,0 +1,478 @@
+/* ============================================
+   REDTEAMKA - COMPONENT STYLES
+   ============================================ */
+
+/* Navigation */
+.sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 280px;
+    height: 100vh;
+    background: linear-gradient(180deg, var(--bg-darker) 0%, var(--bg-dark) 100%);
+    border-right: 1px solid var(--bg-hover);
+    display: flex;
+    flex-direction: column;
+    z-index: var(--z-dropdown);
+    transition: transform var(--transition-normal);
+}
+
+.sidebar-header {
+    padding: 32px 24px;
+    border-bottom: 1px solid var(--bg-hover);
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 24px;
+    font-weight: 700;
+}
+
+.logo-icon {
+    font-size: 32px;
+    color: var(--primary-red);
+}
+
+.logo-text {
+    background: linear-gradient(135deg, var(--primary-red), var(--secondary-blue));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.sidebar-nav {
+    flex: 1;
+    padding: 24px 0;
+}
+
+.nav-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 24px;
+    margin: 4px 16px;
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    transition: all var(--transition-fast);
+    cursor: pointer;
+}
+
+.nav-item:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.nav-item.active {
+    background: linear-gradient(135deg, var(--primary-red), var(--primary-red-dark));
+    color: white;
+}
+
+.nav-icon {
+    width: 20px;
+    font-size: 18px;
+}
+
+.nav-label {
+    flex: 1;
+}
+
+.nav-badge {
+    background: var(--danger);
+    color: white;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 20px;
+}
+
+.sidebar-footer {
+    padding: 24px;
+    border-top: 1px solid var(--bg-hover);
+}
+
+/* Top Bar */
+.top-bar {
+    background: var(--bg-card);
+    padding: 16px 24px;
+    border-radius: var(--radius-lg);
+    margin-bottom: 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border: 1px solid var(--bg-hover);
+}
+
+.menu-toggle {
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-size: 20px;
+    cursor: pointer;
+    display: none;
+}
+
+.page-title {
+    font-size: 24px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.top-bar-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+/* Search Bar */
+.search-bar {
+    display: flex;
+    align-items: center;
+    background: var(--bg-dark);
+    border: 1px solid var(--bg-hover);
+    border-radius: var(--radius-md);
+    padding: 8px 16px;
+    gap: 12px;
+}
+
+.search-icon {
+    color: var(--text-secondary);
+}
+
+.search-input {
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-size: 14px;
+    min-width: 200px;
+}
+
+.search-input:focus {
+    outline: none;
+}
+
+/* User Menu */
+.user-menu {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.notification-btn {
+    position: relative;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-size: 20px;
+    cursor: pointer;
+}
+
+.notification-badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    background: var(--danger);
+    color: white;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 20px;
+}
+
+.user-avatar {
+    width: 40px;
+    height: 40px;
+    background: linear-gradient(135deg, var(--primary-red), var(--primary-red-dark));
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+/* Dropdown Menu */
+.dropdown {
+    position: relative;
+}
+
+.dropdown-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--bg-hover);
+    border-radius: var(--radius-md);
+    min-width: 200px;
+    z-index: var(--z-dropdown);
+    display: none;
+}
+
+.dropdown-menu.show {
+    display: block;
+    animation: slideIn var(--transition-fast);
+}
+
+.dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    color: var(--text-primary);
+    text-decoration: none;
+    transition: background var(--transition-fast);
+}
+
+.dropdown-item:hover {
+    background: var(--bg-hover);
+}
+
+.dropdown-divider {
+    height: 1px;
+    background: var(--bg-hover);
+    margin: 8px 0;
+}
+
+/* Tabs */
+.tabs {
+    display: flex;
+    border-bottom: 1px solid var(--bg-hover);
+    margin-bottom: 24px;
+}
+
+.tab {
+    padding: 12px 24px;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-weight: 500;
+}
+
+.tab:hover {
+    color: var(--text-primary);
+}
+
+.tab.active {
+    color: var(--primary-red);
+    border-bottom: 2px solid var(--primary-red);
+}
+
+/* Pagination */
+.pagination {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 24px;
+}
+
+.page-btn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-dark);
+    border: 1px solid var(--bg-hover);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.page-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--primary-red);
+}
+
+.page-btn.active {
+    background: var(--primary-red);
+    border-color: var(--primary-red);
+    color: white;
+}
+
+/* Progress Bar */
+.progress {
+    background: var(--bg-hover);
+    border-radius: 10px;
+    overflow: hidden;
+    height: 8px;
+}
+
+.progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary-red), var(--secondary-blue));
+    transition: width var(--transition-normal);
+}
+
+/* Tooltips */
+.tooltip {
+    position: relative;
+    display: inline-block;
+}
+
+.tooltip-text {
+    visibility: hidden;
+    background-color: var(--bg-dark);
+    color: var(--text-primary);
+    text-align: center;
+    padding: 6px 12px;
+    border-radius: var(--radius-sm);
+    position: absolute;
+    z-index: var(--z-tooltip);
+    bottom: 125%;
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    font-size: 12px;
+}
+
+.tooltip:hover .tooltip-text {
+    visibility: visible;
+}
+
+/* Accordion */
+.accordion {
+    border: 1px solid var(--bg-hover);
+    border-radius: var(--radius-md);
+    margin-bottom: 16px;
+}
+
+.accordion-header {
+    padding: 16px 20px;
+    background: var(--bg-dark);
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: background var(--transition-fast);
+}
+
+.accordion-header:hover {
+    background: var(--bg-hover);
+}
+
+.accordion-icon {
+    transition: transform var(--transition-fast);
+}
+
+.accordion.active .accordion-icon {
+    transform: rotate(180deg);
+}
+
+.accordion-body {
+    padding: 0 20px;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height var(--transition-normal);
+}
+
+.accordion.active .accordion-body {
+    padding: 16px 20px;
+    max-height: 500px;
+}
+
+/* Cards Grid */
+.cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 24px;
+}
+
+/* Feature Card */
+.feature-card {
+    background: var(--bg-card);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    text-align: center;
+    border: 1px solid var(--bg-hover);
+    transition: all var(--transition-normal);
+}
+
+.feature-card:hover {
+    transform: translateY(-4px);
+    border-color: var(--primary-red);
+}
+
+.feature-icon {
+    font-size: 48px;
+    color: var(--primary-red);
+    margin-bottom: 16px;
+}
+
+.feature-title {
+    font-size: 18px;
+    margin-bottom: 8px;
+}
+
+.feature-description {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+}
+
+/* Empty State */
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+}
+
+.empty-icon {
+    font-size: 64px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+.empty-title {
+    font-size: 18px;
+    margin-bottom: 8px;
+}
+
+.empty-description {
+    color: var(--text-secondary);
+    margin-bottom: 24px;
+}
+
+/* Loading Skeleton */
+.skeleton {
+    background: linear-gradient(90deg, var(--bg-hover) 25%, var(--bg-card) 50%, var(--bg-hover) 75%);
+    background-size: 200% 100%;
+    animation: loading 1.5s infinite;
+    border-radius: var(--radius-md);
+}
+
+@keyframes loading {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+/* Floating Action Button */
+.fab {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--primary-red), var(--primary-red-dark));
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    cursor: pointer;
+    box-shadow: var(--shadow-lg);
+    transition: all var(--transition-normal);
+    z-index: 100;
+}
+
+.fab:hover {
+    transform: scale(1.1);
+    box-shadow: 0 0 20px rgba(255, 51, 102, 0.5);
+}

@@ -1,39 +1,14 @@
 FROM python:3.11-slim
 
-# Install system dependencies and Kali Linux tools
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
-    # Network scanning tools
     nmap \
-    masscan \
-    netcat-openbsd \
-    tcpdump \
-    wireshark \
-    # Web application tools
-    gobuster \
-    nikto \
-    whatweb \
-    wpscan \
-    dirb \
-    ffuf \
-    # Password attacks
-    hydra \
-    john \
-    hashcat \
-    # Exploitation tools
-    metasploit-framework \
-    sqlmap \
-    # Additional utilities
     curl \
     wget \
     git \
-    vim \
-    nano \
-    procps \
-    iputils-ping \
-    dnsutils \
+    netcat-openbsd \
     openssh-client \
-    sudo \
-    # Python build dependencies
+    procps \
     gcc \
     g++ \
     make \
@@ -41,45 +16,30 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
+# Install Python tools
+RUN pip install --no-cache-dir gunicorn
+
 WORKDIR /app
 
-# Copy requirements first for better caching
+# Copy requirements and install
 COPY requirements.txt .
-
-# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy application
 COPY . .
 
 # Create necessary directories
-RUN mkdir -p reports \
-    /var/log/redteamka \
-    /app/sessions \
-    /app/uploads \
-    /tmp/wordlists
+RUN mkdir -p reports sessions uploads logs
 
-# Download common wordlists (optional)
-RUN mkdir -p /usr/share/wordlists && \
-    if [ -f /usr/share/wordlists/dirb/common.txt ]; then \
-        echo "Wordlist already exists"; \
-    else \
-        echo "Wordlist not found - will use built-in"; \
-    fi
+# Create non-root user
+RUN useradd -m -s /bin/bash redteam && \
+    chown -R redteam:redteam /app
 
-# Set environment variables
-ENV FLASK_ENV=production \
-    FLASK_APP=app.py \
-    PYTHONUNBUFFERED=1 \
-    TZ=UTC
+USER redteam
 
-# Expose port
 EXPOSE 8888
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8888/api/health || exit 1
 
-# Run the application
-CMD ["python", "app.py"]
+CMD ["gunicorn", "--worker-class", "eventlet", "-w", "2", "--bind", "0.0.0.0:8888", "app:app"]
