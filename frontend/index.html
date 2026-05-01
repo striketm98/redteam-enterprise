@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Red Team Enterprise Framework | Professional Security Platform</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <i class="fas fa-shield-haltered"></i>
+                <span>RedTeam Enterprise</span>
+            </div>
+            
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active" data-view="dashboard">
+                    <i class="fas fa-tachometer-alt"></i>
+                    <span>Dashboard</span>
+                </a>
+                <a href="#" class="nav-item" data-view="attack">
+                    <i class="fas fa-bullseye"></i>
+                    <span>Attack Surface</span>
+                </a>
+                <a href="#" class="nav-item" data-view="graph">
+                    <i class="fas fa-project-diagram"></i>
+                    <span>Attack Graph</span>
+                </a>
+                <a href="#" class="nav-item" data-view="credentials">
+                    <i class="fas fa-key"></i>
+                    <span>Credentials</span>
+                </a>
+                <a href="#" class="nav-item" data-view="privesc">
+                    <i class="fas fa-arrow-up"></i>
+                    <span>Privilege Escalation</span>
+                </a>
+                <a href="#" class="nav-item" data-view="labs">
+                    <i class="fas fa-flask"></i>
+                    <span>Lab Environment</span>
+                </a>
+                <a href="#" class="nav-item" data-view="reports">
+                    <i class="fas fa-file-alt"></i>
+                    <span>Reports</span>
+                </a>
+                <a href="#" class="nav-item" data-view="settings">
+                    <i class="fas fa-cog"></i>
+                    <span>Settings</span>
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="status-indicator">
+                    <i class="fas fa-circle"></i>
+                    <span>System Ready</span>
+                </div>
+            </div>
+        </aside>
+        
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-bar">
+                <div class="search-bar">
+                    <i class="fas fa-search"></i>
+                    <input type="text" placeholder="Search targets, commands, findings...">
+                </div>
+                <div class="user-menu">
+                    <i class="fas fa-bell"></i>
+                    <div class="user-avatar">
+                        <span>RT</span>
+                    </div>
+                </div>
+            </header>
+            
+            <div class="content-area" id="content-area">
+                <!-- Dynamic content loaded here -->
+            </div>
+        </main>
+    </div>
+    
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="/js/app.js"></script>
+    <script src="/js/dashboard.js"></script>
+</body>
+</html>
