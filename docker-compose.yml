@@ -1,11 +1,11 @@
-version: '3.9'
+version: '4.0'
 
 services:
   backend:
     build: ./backend
     container_name: redteam-backend
     ports:
-      - "8087:8087"
+      - "8077:8077"
     volumes:
       - ./backend:/app
       - ./sessions:/app/sessions
@@ -14,7 +14,7 @@ services:
     environment:
       - FLASK_ENV=production
       - SECRET_KEY=${SECRET_KEY:-redteam-secret-key-2024}
-      - PORT=8087
+      - PORT=8077
     networks:
       - redteam-network
     restart: unless-stopped
